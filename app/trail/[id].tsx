@@ -205,7 +205,7 @@ export default function TrailDetail() {
           style={[s.button, { backgroundColor: c.success }]}
           onPress={() => router.push(`/hike/${trail.id}`)}
         >
-          <Text style={s.buttonText}>Iniciar recorrido</Text>
+          <Text style={s.buttonText}>Ver sendero</Text>
         </Pressable>
       )}
 

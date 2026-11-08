@@ -658,3 +658,116 @@ export async function listTrailReports(trailId: string, limit = 20): Promise<Sto
     ...(r.comment !== null ? { comment: r.comment } : {}),
   }));
 }
+
+// ------------------------------------------------------------------ hikes --
+
+/** Starts recording a walk and returns its identifier. */
+export async function startHike(trailId: string): Promise<string> {
+  const db = await openDatabase();
+  const id = `hike-${Date.now()}`;
+  await db.runAsync(
+    'INSERT INTO hikes (id, trail_id, started_at) VALUES (?, ?, ?)',
+    id,
+    trailId,
+    now(),
+  );
+  return id;
+}
+
+/**
+ * Appends a position to the walk being recorded.
+ *
+ * One row per fix, written as it arrives rather than buffered in memory.
+ * A hike lasts hours and the application can be killed at any point; what
+ * is on disk is what survives.
+ */
+export async function appendHikePoint(
+  hikeId: string,
+  position: number,
+  p: Point,
+): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO hike_points (hike_id, position, lat, lon, ele, time) VALUES (?, ?, ?, ?, ?, ?)',
+    hikeId,
+    position,
+    p.lat,
+    p.lon,
+    p.ele ?? null,
+    p.time ?? now(),
+  );
+}
+
+export async function finishHike(
+  hikeId: string,
+  summary: { distanceM: number; deviations: number },
+): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    'UPDATE hikes SET finished_at = ?, distance_m = ?, deviations = ? WHERE id = ?',
+    now(),
+    summary.distanceM,
+    summary.deviations,
+    hikeId,
+  );
+}
+
+export interface HikeSummary {
+  id: string;
+  trailId: string;
+  trailName: string;
+  startedAt: string;
+  finishedAt: string | null;
+  distanceM: number;
+  deviations: number;
+  points: number;
+}
+
+/** The hiker's own history, newest first. */
+export async function listHikes(limit = 30): Promise<HikeSummary[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{
+    id: string;
+    trail_id: string;
+    trail_name: string;
+    started_at: string;
+    finished_at: string | null;
+    distance_m: number;
+    deviations: number;
+    points: number;
+  }>(
+    `SELECT h.id, h.trail_id, t.name AS trail_name, h.started_at, h.finished_at,
+            h.distance_m, h.deviations,
+            (SELECT COUNT(*) FROM hike_points p WHERE p.hike_id = h.id) AS points
+       FROM hikes h
+       JOIN trails t ON t.id = h.trail_id
+      ORDER BY h.started_at DESC
+      LIMIT ?`,
+    limit,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    trailId: r.trail_id,
+    trailName: r.trail_name,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at,
+    distanceM: r.distance_m,
+    deviations: r.deviations,
+    points: r.points,
+  }));
+}
+
+/** The recorded path of one walk, for showing it over the trail. */
+export async function readHikePoints(hikeId: string): Promise<Point[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{ lat: number; lon: number; ele: number | null; time: string }>(
+    'SELECT lat, lon, ele, time FROM hike_points WHERE hike_id = ? ORDER BY position',
+    hikeId,
+  );
+  return rows.map((r) => ({
+    lat: r.lat,
+    lon: r.lon,
+    ...(r.ele !== null ? { ele: r.ele } : {}),
+    time: r.time,
+  }));
+}

@@ -17,12 +17,29 @@ import {
   TrailSummary,
 } from '../src/data/db';
 import { Level } from '../src/domain/types';
+import {
+  downloadRegion,
+  downloadedRegions,
+  isStale,
+  listRegions,
+  regionsSupported,
+  removeRegion,
+  type DownloadedRegion,
+  type Region,
+} from '../src/data/regions';
+import { listHikes, type HikeSummary } from '../src/data/db';
 import { prepareStorage } from '../src/startup/storage';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
 const LEVELS: Level[] = ['beginner', 'intermediate', 'advanced'];
 
 export default function Profile() {
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [held, setHeld] = useState<DownloadedRegion[]>([]);
+  const [busyRegion, setBusyRegion] = useState<string | null>(null);
+  const [regionProgress, setRegionProgress] = useState(0);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  const [hikes, setHikes] = useState<HikeSummary[]>([]);
   const { c, mode, toggle } = useTheme();
   const s = useMemo(() => styles(c), [c]);
   const colour = difficultyColour(c);
@@ -45,6 +62,18 @@ export default function Profile() {
         setProfile(p);
         setPending(n);
         setOfflineReady(list.filter((t) => t.downloadedAt !== null));
+
+        // The region catalogue needs the server, so a failure here is
+        // ordinary rather than exceptional. The section simply shows
+        // nothing instead of the screen refusing to load.
+        setHikes(await listHikes());
+        setHeld(await downloadedRegions());
+        try {
+          const available = await listRegions();
+          if (active) setRegions(available.filter((r) => r.available));
+        } catch {
+          if (active) setRegions([]);
+        }
       })();
       return () => {
         active = false;
@@ -55,6 +84,26 @@ export default function Profile() {
   async function changeLevel(level: Level) {
     await saveLevel(level);
     setProfile((p) => (p ? { ...p, level } : p));
+  }
+
+  /** Brings a region's tiles onto the phone. Long, and never automatic. */
+  async function getRegion(region: Region) {
+    setBusyRegion(region.id);
+    setRegionProgress(0);
+    setRegionError(null);
+    try {
+      await downloadRegion(region, (p) => setRegionProgress(p.percentage));
+      setHeld(await downloadedRegions());
+    } catch {
+      setRegionError('No pudimos descargar la región. Revisá tu conexión y volvé a intentar.');
+    } finally {
+      setBusyRegion(null);
+    }
+  }
+
+  async function discardRegion(region: Region) {
+    await removeRegion(region.id);
+    setHeld(await downloadedRegions());
   }
 
   if (!profile) {
@@ -119,6 +168,85 @@ export default function Profile() {
         ))}
       </View>
 
+      <Text style={s.section}>Tus recorridos</Text>
+      {hikes.length === 0 ? (
+        <Text style={s.hint}>Todavía no registraste ninguna caminata.</Text>
+      ) : (
+        hikes.map((h) => {
+          const fecha = new Date(h.startedAt).toLocaleDateString('es-AR', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          });
+          return (
+            <View key={h.id} style={s.regionCard}>
+              <Text style={s.regionTitle}>{h.trailName}</Text>
+              <Text style={s.regionDetail}>{fecha}</Text>
+              <Text style={s.regionDetail}>
+                {(h.distanceM / 1000).toFixed(2)} km caminados · {h.points} lecturas
+                {h.deviations > 0
+                  ? ` · ${h.deviations} desvío${h.deviations === 1 ? '' : 's'}`
+                  : ' · sin desvíos'}
+                {h.finishedAt === null ? ' · sin cerrar' : ''}
+              </Text>
+            </View>
+          );
+        })
+      )}
+
+      <Text style={s.section}>Mapas sin conexión</Text>
+      {!regionsSupported() ? (
+        <Text style={s.hint}>
+          El mapa necesita la aplicación compilada. En Expo Go el recorrido muestra la traza
+          esquemática, sin cartografía.
+        </Text>
+      ) : regions.length === 0 ? (
+        <Text style={s.hint}>Sincronizá para ver las regiones disponibles.</Text>
+      ) : (
+        regions.map((r) => {
+          const tiene = held.some((h) => h.regionId === r.id);
+          const vieja = isStale(r, held);
+          const ocupado = busyRegion === r.id;
+          return (
+            <View key={r.id} style={s.regionCard}>
+              <Text style={s.regionTitle}>{r.name}</Text>
+              <Text style={s.regionDetail}>{r.description}</Text>
+              <Text style={s.regionDetail}>
+                {(r.sizeBytes / 1048576).toFixed(0)} MB · {r.tileCount.toLocaleString('es-AR')}{' '}
+                baldosas · zoom {r.minZoom} a {r.maxZoom}
+              </Text>
+              {vieja && (
+                <Text style={s.regionDetail}>
+                  La que tenés guardada quedó desactualizada. Volvé a descargarla para tener el
+                  área y los datos nuevos.
+                </Text>
+              )}
+              {ocupado ? (
+                <Text style={s.regionDetail}>Descargando… {Math.round(regionProgress)} %</Text>
+              ) : (
+                <>
+                  <Pressable style={s.regionButton} onPress={() => getRegion(r)}>
+                    <Text style={s.regionButtonText}>
+                      {vieja
+                        ? 'Actualizar la región'
+                        : tiene
+                          ? 'Volver a descargar'
+                          : 'Descargar para usar sin conexión'}
+                    </Text>
+                  </Pressable>
+                  {tiene && (
+                    <Pressable onPress={() => discardRegion(r)}>
+                      <Text style={s.hint}>Eliminar del teléfono</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+            </View>
+          );
+        })
+      )}
+      {regionError && <Text style={s.hint}>{regionError}</Text>}
+
       <Text style={s.section}>Sincronización</Text>
       <View style={s.card}>
         <Text style={s.cardText}>
@@ -141,6 +269,25 @@ const styles = (c: Palette) =>
     identity: { marginBottom: sp.lg },
     name: { fontSize: 22, fontWeight: '800', color: c.text },
     email: { color: c.mutedText, fontSize: 13, marginTop: 2 },
+    regionCard: {
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderWidth: 1,
+      borderRadius: 10,
+      padding: sp.md,
+      marginBottom: sp.sm,
+      gap: sp.xs,
+    },
+    regionTitle: { color: c.text, fontWeight: '700', fontSize: 14 },
+    regionDetail: { color: c.mutedText, fontSize: 12, lineHeight: 17 },
+    regionButton: {
+      backgroundColor: c.primary,
+      borderRadius: 8,
+      paddingVertical: sp.sm,
+      alignItems: 'center',
+      marginTop: sp.xs,
+    },
+    regionButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 13 },
     section: { color: c.text, fontWeight: '700', fontSize: 13, marginTop: sp.lg, marginBottom: sp.sm },
     levels: { flexDirection: 'row', gap: sp.sm },
     levelChip: {

@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const MIGRATIONS: string[] = [
   // v1 - initial schema
@@ -141,5 +141,36 @@ export const MIGRATIONS: string[] = [
   -- lost: the seed rewrites them on the next start, and a trail the hiker
   -- imported is not preloaded and is left alone.
   DELETE FROM trails WHERE source = 'preloaded' AND length(id) <> 36;
+  `,
+
+  // v4 - the hike as it was actually walked
+  `
+  -- What the hiker did, as opposed to what the trail says. The two differ
+  -- whenever somebody takes a detour, turns back early or loses the path,
+  -- and the difference is the interesting part.
+  CREATE TABLE IF NOT EXISTS hikes (
+    id           TEXT PRIMARY KEY,
+    trail_id     TEXT NOT NULL REFERENCES trails(id) ON DELETE CASCADE,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    distance_m   REAL NOT NULL DEFAULT 0,
+    -- How many times the deviation alert opened during the walk. Kept here
+    -- rather than counted from issued_alerts so a hike keeps its own record
+    -- even if the alert log is pruned.
+    deviations   INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_hikes_trail ON hikes(trail_id);
+
+  -- Separate rows for the same reason the trail's own geometry is: the
+  -- sequence is appended to on every position fix and read whole.
+  CREATE TABLE IF NOT EXISTS hike_points (
+    hike_id   TEXT NOT NULL REFERENCES hikes(id) ON DELETE CASCADE,
+    position  INTEGER NOT NULL,
+    lat       REAL NOT NULL,
+    lon       REAL NOT NULL,
+    ele       REAL,
+    time      TEXT NOT NULL,
+    PRIMARY KEY (hike_id, position)
+  );
   `,
 ];

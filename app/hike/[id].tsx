@@ -10,7 +10,14 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
+import {
+  appendHikePoint,
+  finishHike,
+  startHike,
+} from '../../src/data/db';
+import { haversineDistance } from '../../src/domain/geo';
+import { TrackMap } from '../../src/ui/TrackMap';
+import { downloadedRegionIds, styleUrlFor } from '../../src/data/regions';
 
 import { readTrackPoints, recordAlert, saveReport } from '../../src/data/db';
 import { distanceToTrack } from '../../src/domain/geo';
@@ -37,8 +44,22 @@ export default function Hike() {
   const [track, setTrack] = useState<Point[]>([]);
   const [position, setPosition] = useState<Point | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
-  const [replay, setReplay] = useState(true);
+  // The walk has two moments. Before it starts the screen shows the whole
+  // route so the hiker can look it over; once started it follows them.
+  const [navigating, setNavigating] = useState(false);
+  // A simulated walk along the track, which is the only way to exercise
+  // the deviation alert without being on the mountain.
+  const [replay, setReplay] = useState(false);
   const [offTrack, setOffTrack] = useState(false);
+  // The walk as it is actually being made, which differs from the trail
+  // whenever somebody detours, turns back early or loses the path. Held in
+  // refs because every position fix updates it and re-rendering on each
+  // would be wasted work during a walk that lasts hours.
+  const hikeId = useRef<string | null>(null);
+  const recorded = useRef({ count: 0, metres: 0, deviations: 0, last: null as Point | null });
+  const [walked, setWalked] = useState(0);
+  // Changing this frames the entire route again.
+  const [fitToken, setFitToken] = useState(0);
   const [distance, setDistance] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -62,6 +83,18 @@ export default function Hike() {
     setDistance(r.meters);
     setProgress(progressIndex ?? r.segmentIndex);
 
+    // Persisted as it arrives, not buffered. A hike lasts hours and the
+    // application can be killed at any point; what is on disk survives.
+    const current = hikeId.current;
+    if (current) {
+      const stamped: Point = { ...p, time: p.time ?? new Date().toISOString() };
+      const previous = recorded.current.last;
+      if (previous) recorded.current.metres += haversineDistance(previous, stamped);
+      recorded.current.last = stamped;
+      void appendHikePoint(current, recorded.current.count++, stamped);
+      setWalked(recorded.current.metres);
+    }
+
     const result = evaluateDeviation(r.meters, state.current);
     state.current = result.state;
     setCounters((x) => ({
@@ -71,6 +104,7 @@ export default function Hike() {
     }));
     if (result.shouldAlert) {
       setOffTrack(true);
+      recorded.current.deviations++;
       recordAlert({
         trailId: String(id),
         kind: 'deviation',
@@ -79,6 +113,29 @@ export default function Hike() {
     }
     if (result.shouldClearAlert) setOffTrack(false);
   }
+
+  // The recording opens when the track is in place and closes when the
+  // screen is left, which is the only moment the application can be sure
+  // the walk is over.
+  useEffect(() => {
+    if (!navigating || track.length === 0) return;
+    let active = true;
+    (async () => {
+      const created = await startHike(String(id));
+      if (active) hikeId.current = created;
+      else await finishHike(created, { distanceM: 0, deviations: 0 });
+    })();
+    return () => {
+      active = false;
+      const current = hikeId.current;
+      if (!current) return;
+      hikeId.current = null;
+      void finishHike(current, {
+        distanceM: recorded.current.metres,
+        deviations: recorded.current.deviations,
+      });
+    };
+  }, [navigating, track.length, id]);
 
   // Switching position source restarts tracking, so readings accumulated with
   // the previous source do not affect the new series.
@@ -90,9 +147,24 @@ export default function Hike() {
     setCounters({ readings: 0, outside: 0, inside: 0 });
   }, [replay]);
 
+  function start() {
+    recorded.current = { count: 0, metres: 0, deviations: 0, last: null };
+    setWalked(0);
+    setNavigating(true);
+  }
+
+  function stop() {
+    setNavigating(false);
+    setPosition(null);
+    setDistance(null);
+    // Back to the whole route, which is what the screen is for when
+    // nobody is walking.
+    setFitToken((t) => t + 1);
+  }
+
   // Replaying the track with a departure induced in the middle stretch.
   useEffect(() => {
-    if (!replay || track.length === 0) return;
+    if (!navigating || !replay || track.length === 0) return;
     let i = 0;
     const timer = setInterval(() => {
       const base = track[i % track.length];
@@ -102,11 +174,11 @@ export default function Hike() {
       i += 2;
     }, 700);
     return () => clearInterval(timer);
-  }, [replay, track]);
+  }, [navigating, replay, track]);
 
   // The device's satellite receiver.
   useEffect(() => {
-    if (replay || track.length === 0) return;
+    if (!navigating || replay || track.length === 0) return;
     let sub: Location.LocationSubscription | null = null;
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -128,32 +200,22 @@ export default function Hike() {
     return () => {
       sub?.remove();
     };
-  }, [replay, track]);
+  }, [navigating, replay, track]);
 
-  // Linear projection of the track onto the canvas, with the position inside
-  // the frame so it never falls out of view.
-  const view = useMemo(() => {
-    if (track.length === 0) return null;
-    const pts = position ? [...track, position] : track;
-    const lats = pts.map((p) => p.lat);
-    const lons = pts.map((p) => p.lon);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const latRange = maxLat - minLat || 1e-6;
-    const lonRange = maxLon - minLon || 1e-6;
-    const w = CANVAS.width - CANVAS.margin * 2;
-    const h = CANVAS.height - CANVAS.margin * 2;
-    const project = (p: Point) => ({
-      x: CANVAS.margin + ((p.lon - minLon) / lonRange) * w,
-      y: CANVAS.margin + (1 - (p.lat - minLat) / latRange) * h,
-    });
-    return {
-      line: track.map(project).map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(' '),
-      me: position ? project(position) : null,
+  // Which downloaded region, if any, can draw this track. Resolved once:
+  // asking MapLibre on every render would hit the native bridge during the
+  // hike, which is the moment the device can least afford it.
+  const [styleUrl, setStyleUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const ids = await downloadedRegionIds();
+      if (active && ids.length > 0) setStyleUrl(styleUrlFor(ids[0]!));
+    })();
+    return () => {
+      active = false;
     };
-  }, [track, position]);
+  }, []);
 
   async function addReport(kind: string) {
     await saveReport({
@@ -189,39 +251,26 @@ export default function Hike() {
       )}
 
       <View style={s.canvasBox}>
-        <Svg width={CANVAS.width} height={CANVAS.height}>
-          <Rect x={0} y={0} width={CANVAS.width} height={CANVAS.height} fill={c.canvas} />
-          {[0.2, 0.4, 0.6, 0.8].map((f) => (
-            <Line
-              key={f}
-              x1={0}
-              y1={CANVAS.height * f}
-              x2={CANVAS.width}
-              y2={CANVAS.height * f}
-              stroke={c.canvasLine}
-              strokeWidth={1}
-            />
-          ))}
-          {view && (
-            <Polyline points={view.line} fill="none" stroke={c.danger} strokeWidth={2.5} strokeLinejoin="round" />
-          )}
-          {view?.me && (
-            <>
-              <Circle cx={view.me.x} cy={view.me.y} r={13} fill={c.primary} opacity={0.22} />
-              <Circle cx={view.me.x} cy={view.me.y} r={6} fill={c.primary} />
-            </>
-          )}
-        </Svg>
-        <Text style={s.canvasNote}>
-          Vista esquemática de la traza y la posición. La cartografía requiere un development build
-          y queda pendiente.
-        </Text>
+        <TrackMap
+          track={track}
+          position={position}
+          offTrack={offTrack}
+          styleUrl={styleUrl}
+          colours={c}
+          width={CANVAS.width}
+          height={CANVAS.height}
+          follow={navigating}
+          fitToken={fitToken}
+        />
+        <Pressable style={s.recentre} onPress={() => setFitToken((t) => t + 1)}>
+          <Text style={s.recentreText}>Ver el recorrido completo</Text>
+        </Pressable>
       </View>
 
       <View style={s.metrics}>
         {[
           [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
-          [`${(coveredM / 1000).toFixed(1)} km`, 'recorridos', false],
+          [`${(walked / 1000).toFixed(2)} km`, 'caminados', false],
           [`${Math.round(((progress + 1) / track.length) * 100)} %`, 'del sendero', false],
         ].map(([v, label, red]) => (
           <View key={String(label)} style={s.metric}>
@@ -242,21 +291,36 @@ export default function Hike() {
         </Text>
       </View>
 
-      <View style={s.sourceRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.sourceTitle}>
-            {replay ? 'Reproducción de la traza' : 'Receptor satelital'}
-          </Text>
-          <Text style={s.sourceDetail}>
-            {replay
-              ? 'Recorre la traza e induce un apartamiento para mostrar la alerta.'
-              : accuracy !== null
-                ? `Posición real del dispositivo. Precisión ${Math.round(accuracy)} m.`
-                : 'Esperando la primera lectura del receptor.'}
-          </Text>
+      <Pressable
+        style={[s.startButton, navigating && s.stopButton]}
+        onPress={navigating ? stop : start}
+      >
+        <Text style={s.startButtonText}>
+          {navigating ? 'Finalizar sendero' : 'Iniciar sendero'}
+        </Text>
+      </Pressable>
+
+      <Text style={s.sourceDetail}>
+        {!navigating
+          ? 'El mapa muestra el sendero completo. Al iniciar, la vista te sigue mientras caminás.'
+          : replay
+            ? 'Recorrido simulado sobre la traza, con un apartamiento inducido.'
+            : accuracy !== null
+              ? `Siguiendo el receptor del dispositivo. Precisión ${Math.round(accuracy)} m.`
+              : 'Esperando la primera lectura del receptor.'}
+      </Text>
+
+      {!navigating && (
+        // A simulated walk is the only way to exercise the deviation alert
+        // without being on the mountain, so it stays available, out of the
+        // way of the thing the screen is actually for.
+        <View style={s.sourceRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.sourceDetail}>Simular el recorrido en lugar de usar el receptor</Text>
+          </View>
+          <Switch value={replay} onValueChange={setReplay} />
         </View>
-        <Switch value={replay} onValueChange={setReplay} />
-      </View>
+      )}
 
       {permissionDenied && (
         <Text style={s.permission}>
@@ -306,6 +370,17 @@ const styles = (c: Palette) =>
       paddingVertical: sp.sm,
       marginBottom: sp.md,
     },
+    recentre: { paddingTop: sp.sm, paddingHorizontal: sp.md },
+    startButton: {
+      backgroundColor: c.primary,
+      borderRadius: 10,
+      paddingVertical: sp.md,
+      alignItems: 'center',
+      marginBottom: sp.sm,
+    },
+    stopButton: { backgroundColor: c.danger },
+    startButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 15 },
+    recentreText: { color: c.primary, fontSize: 12, fontWeight: '700' },
     canvasNote: {
       fontSize: 11,
       color: c.mutedText,

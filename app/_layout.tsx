@@ -21,7 +21,7 @@ function Navigation() {
         <Stack.Screen name="catalog" options={{ title: 'Senderos' }} />
         <Stack.Screen name="profile" options={{ title: 'Tu perfil' }} />
         <Stack.Screen name="trail/[id]" options={{ title: 'Sendero' }} />
-        <Stack.Screen name="hike/[id]" options={{ title: 'En recorrido' }} />
+        <Stack.Screen name="hike/[id]" options={{ title: 'Recorrido' }} />
       </Stack>
     </>
   );
