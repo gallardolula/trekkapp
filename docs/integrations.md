@@ -51,8 +51,11 @@ the critical path is one more thing that can break in the field.
 ## 2. Runtime libraries — backend
 
 Built, under `server/`. Authentication, the catalogue delta, contributed
-trails, moderation, report upload and the forecast cache are in place. The
-tile region index is not.
+trails, moderation, report upload, the forecast cache and the tile region
+index are all in place.
+
+Tile archives are read with the runtime's own `node:sqlite`, since MBTiles is
+a SQLite database and this avoids a dependency for it.
 
 | Library | Role | Why |
 | --- | --- | --- |
@@ -83,13 +86,18 @@ extension is introduced when the first such query exists rather than before.
 | File import | `expo-document-picker` | — | — | Yes |
 | Foreground location | `expo-location` | `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` | Yes |
 | Background location | `expo-location` + `expo-task-manager` | `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION` | `NSLocationAlwaysAndWhenInUseUsageDescription`, background mode `location` | **No** |
-| Map and offline regions | `@maplibre/maplibre-react-native` | — | — | **No** |
+| Map and offline regions | `@maplibre/maplibre-react-native` 11.5 | — | — | **No**, falls back to a schematic track |
 | Local notifications | `expo-notifications` | `POST_NOTIFICATIONS` (API 33+) | — | Partial |
 | Secure storage | `expo-secure-store` | — | — | Yes |
 
-**Sprint boundary**: Expo Go covers the domain, the catalogue and GPX import.
-From the map and the hike loop onwards a development build is required. Plan
-accordingly rather than discovering it mid-sprint.
+**Sprint boundary**: Expo Go covers the domain, the catalogue, GPX import,
+synchronisation and the forecast. The map needs a development build, built
+with EAS for Android (`eas build --profile development --platform android`).
+
+The boundary is softened rather than enforced: `src/ui/TrackMap.tsx` resolves
+MapLibre with a runtime `require` and falls back to the schematic track when
+the module is absent, so everything other than the basemap stays testable in
+Expo Go.
 
 ### Permission strategy
 

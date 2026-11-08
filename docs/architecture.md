@@ -250,7 +250,15 @@ imported rather than reimplemented, so the two cannot drift.
 | `/api/moderation/trails` | GET | Review queue for contributed trails | Moderator role | Built |
 | `/api/moderation/trails/:id/review` | POST | Approve or reject a submission | Moderator role | Built |
 | `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Built |
-| `/api/regions` | GET | Available offline tile regions and versions | Required | Pending |
+| `/api/regions` | GET | Available offline tile regions and versions | Required | Built |
+| `/api/regions/:id/style.json` | GET | MapLibre style for a region | Public | Built |
+| `/api/regions/:id/tiles/{z}/{x}/{y}.pbf` | GET | One vector tile | Public | Built |
+
+The style and the tiles are public while the listing is not. They are
+OpenStreetMap derived data the licence lets anyone redistribute, and the
+component that fetches them is MapLibre's own native downloader, which manages
+its requests outside the application's HTTP client and cannot be relied on to
+carry a bearer token on each of the thousands of tiles a region comprises.
 
 The delta cursor is formatted by PostgreSQL and never rebuilt from a
 JavaScript `Date`. A `Date` holds milliseconds while the column holds

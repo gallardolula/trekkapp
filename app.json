@@ -23,7 +23,8 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
-      ]
+      ],
+      "package": "ar.edu.siglo21.trekkapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -31,8 +32,19 @@
     "plugins": [
       "expo-sqlite",
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@maplibre/maplibre-react-native"
     ],
-    "scheme": "trekkapp"
+    "scheme": "trekkapp",
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "4b0a8af5-ac46-4553-99bf-ce11d4f61bbb"
+      }
+    }
   }
 }

@@ -5,6 +5,8 @@
  *  failure on the first request that needs it.
  */
 
+import { join } from 'node:path';
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`missing environment variable ${name}`);
@@ -26,4 +28,7 @@ export const config = {
   jwtSecret: required('JWT_SECRET'),
   accessTokenMinutes: number('ACCESS_TOKEN_MINUTES', 15),
   refreshTokenDays: number('REFRESH_TOKEN_DAYS', 30),
+  // Where the generated tile archives live. They are build artefacts, kept
+  // outside the server so that regenerating them does not touch its code.
+  tilesDir: process.env['TILES_DIR'] ?? join(__dirname, '..', '..', 'tiles', 'out'),
 } as const;

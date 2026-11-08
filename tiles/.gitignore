@@ -1,0 +1,5 @@
+# Generated artefacts and the source extract. Reproducible from generate.sh,
+# and far too large to version.
+data/
+out/
+*.jar
