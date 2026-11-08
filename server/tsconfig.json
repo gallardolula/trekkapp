@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    // nodenext rather than node10, which TypeScript 6 deprecates. It also
+    // lets this CommonJS code require an ESM-only package such as jose,
+    // which Node supports from version 22 onward.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "rootDir": "..",
+    "outDir": "dist",
+    // Plain strict, the same setting the application uses. The domain code
+    // is shared between both and was written under it.
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts", "../src/domain/**/*.ts"],
+  "exclude": ["../src/domain/__tests__/**", "src/__tests__/**", "dist"]
+}
