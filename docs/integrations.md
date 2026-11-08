@@ -51,8 +51,8 @@ the critical path is one more thing that can break in the field.
 ## 2. Runtime libraries — backend
 
 Built, under `server/`. Authentication, the catalogue delta, contributed
-trails, moderation and report upload are in place. The forecast cache and
-the tile region index are not.
+trails, moderation, report upload and the forecast cache are in place. The
+tile region index is not.
 
 | Library | Role | Why |
 | --- | --- | --- |

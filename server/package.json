@@ -9,7 +9,8 @@
     "build": "tsc --build",
     "start": "node --env-file=.env dist/server/src/index.js",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
-    "test": "jest"
+    "test": "jest",
+    "seed": "tsx --env-file=.env src/db/seed.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",

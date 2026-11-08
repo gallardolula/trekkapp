@@ -1,51 +1,45 @@
-/** Weather service client.
+/** Weather for a trail.
  *
- *  In the final design the request goes through the server, which keeps a
- *  shared cache and concentrates the configuration. While that component does
- *  not exist, the prototype queries the service directly so the weather rule
- *  can be demonstrated with real data.
+ *  The request goes to the server and not to the provider. The server asks
+ *  once per trail and per freshness window rather than once per device,
+ *  and it asks about the trail's own coordinates, taken from its geometry,
+ *  instead of whatever a device happens to send. See docs/adr/0007.
+ *
+ *  Nothing here decides anything. The thresholds that turn a forecast into
+ *  a warning live in the domain, which is what keeps the provider
+ *  replaceable without touching a rule.
  */
+import { requestAuthenticated } from './api';
 import { Forecast } from '../domain/types';
 
-const BASE = 'https://api.open-meteo.com/v1/forecast';
+/** Where the answer came from, so the screen can say how fresh it is. */
+export type ForecastSource = 'upstream' | 'cache' | 'stale';
 
-interface OpenMeteoResponse {
-  daily?: {
-    time?: string[];
-    precipitation_sum?: (number | null)[];
-    wind_speed_10m_max?: (number | null)[];
-    temperature_2m_min?: (number | null)[];
-    temperature_2m_max?: (number | null)[];
-  };
+export interface ForecastDay {
+  forecast: Forecast;
+  obtainedAt: string;
 }
 
-const num = (v: number | null | undefined) => (typeof v === 'number' ? v : 0);
+interface ForecastResponse {
+  trailId: string;
+  days: ForecastDay[];
+  source: ForecastSource;
+}
 
 /**
- * Fetches today's forecast for a pair of coordinates.
+ * Fetches the forecast of a trail, or null when it cannot be obtained.
  *
- * Returns null when the service does not answer or carries no data, because
- * a missing forecast must not block the download but be reported as missing.
+ * Null covers every reason indistinguishably on purpose. Whether there is
+ * no coverage, no session, or the provider is down, the consequence is the
+ * same: the screen shows whatever it has stored, with its age, and the
+ * download is never blocked by a forecast nobody could read.
  */
-export async function fetchForecast(lat: number, lon: number): Promise<Forecast | null> {
-  const url =
-    `${BASE}?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
-    '&daily=precipitation_sum,wind_speed_10m_max,temperature_2m_min,temperature_2m_max' +
-    '&timezone=auto&forecast_days=1';
-
+export async function fetchForecast(trailId: string): Promise<ForecastDay | null> {
   try {
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const j = (await r.json()) as OpenMeteoResponse;
-    const d = j.daily;
-    if (!d?.time?.length) return null;
-    return {
-      date: d.time[0],
-      precipitationMm: num(d.precipitation_sum?.[0]),
-      windKmh: num(d.wind_speed_10m_max?.[0]),
-      minTempC: num(d.temperature_2m_min?.[0]),
-      maxTempC: num(d.temperature_2m_max?.[0]),
-    };
+    const response = await requestAuthenticated<ForecastResponse>(
+      `/api/trails/${trailId}/forecast`,
+    );
+    return response.days[0] ?? null;
   } catch {
     return null;
   }

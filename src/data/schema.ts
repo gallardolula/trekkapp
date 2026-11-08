@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const MIGRATIONS: string[] = [
   // v1 - initial schema
@@ -130,5 +130,16 @@ export const MIGRATIONS: string[] = [
   -- Mirrors the server's cursor column, so a trail already up to date is not
   -- written again on every delta.
   ALTER TABLE trails ADD COLUMN updated_at TEXT;
+  `,
+
+  // v3 - the preloaded trails take identifiers the server can represent
+  `
+  -- Until now a preloaded trail was identified by a slug, which the server
+  -- cannot store because it identifies trails by UUID. The seed now uses
+  -- fixed UUIDs, so the rows written under the old scheme are removed to
+  -- avoid holding the same trail twice under two identities. Nothing is
+  -- lost: the seed rewrites them on the next start, and a trail the hiker
+  -- imported is not preloaded and is left alone.
+  DELETE FROM trails WHERE source = 'preloaded' AND length(id) <> 36;
   `,
 ];

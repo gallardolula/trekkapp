@@ -64,22 +64,24 @@ export default function TrailDetail() {
       setDownloaded(t.downloadedAt !== null);
       if (p) setDecision(evaluateDownload(t.attributes, p.level));
 
-      // The forecast is requested for the midpoint of the track, which
-      // represents the route better than its starting point.
-      const middle = pts[Math.floor(pts.length / 2)];
-      if (!middle) return;
+      // What is already on the device is shown first, so the screen is
+      // never empty while the network is being waited on. The server picks
+      // the coordinates from the trail's own geometry.
       const today = new Date().toISOString().slice(0, 10);
       const stored = await readForecast(t.id, today);
       if (stored) {
         setWeather(evaluateWeather(stored.forecast));
         setObtainedAt(stored.obtainedAt);
       }
-      const fresh = await fetchForecast(middle.lat, middle.lon);
+      const fresh = await fetchForecast(t.id);
       if (!active) return;
       if (fresh) {
-        await saveForecast(t.id, fresh);
-        setWeather(evaluateWeather(fresh));
-        setObtainedAt(new Date().toISOString());
+        await saveForecast(t.id, fresh.forecast);
+        setWeather(evaluateWeather(fresh.forecast));
+        // The age is the server's, not the moment this device received it.
+        // A forecast the server cached three hours ago is three hours old
+        // however recently it travelled.
+        setObtainedAt(fresh.obtainedAt);
       } else if (!stored) {
         setNoForecast(true);
       }

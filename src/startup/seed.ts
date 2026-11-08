@@ -18,6 +18,9 @@ interface Waypoint {
 }
 
 export interface SeedTrail {
+  /** Fixed, and in the form of a UUID, because the server identifies trails
+   *  that way. The same trail is therefore the same record on both sides and
+   *  a synchronisation updates it instead of adding a second copy. */
   id: string;
   name: string;
   description: string;
@@ -54,7 +57,7 @@ export function densify(waypoints: Waypoint[], perLeg = 40): Point[] {
 
 export const SEED_TRAILS: SeedTrail[] = [
   {
-    id: 'condorito-balcon-norte',
+    id: '7b1f0c2a-0001-4a00-8000-000000000001',
     name: 'Quebrada del Condorito. Balcón Norte',
     description:
       'Recorrido de baja exigencia desde el portal de La Pampilla hasta el Balcón Norte, dentro del Parque Nacional Quebrada del Condorito.',
@@ -67,7 +70,7 @@ export const SEED_TRAILS: SeedTrail[] = [
     ],
   },
   {
-    id: 'los-gigantes-mogote',
+    id: '7b1f0c2a-0002-4a00-8000-000000000002',
     name: 'Los Gigantes. Mogote Chico',
     description:
       'Ascenso al Mogote Chico desde el acceso de Los Gigantes, con tramos de roca y sin señalización continua en la parte alta.',
@@ -81,7 +84,7 @@ export const SEED_TRAILS: SeedTrail[] = [
     ],
   },
   {
-    id: 'champaqui-villa-alpina',
+    id: '7b1f0c2a-0003-4a00-8000-000000000003',
     name: 'Cerro Champaquí por Villa Alpina',
     description:
       'Ruta clásica de ascenso al punto más alto de la provincia, de dos jornadas, con vadeo de arroyos y tramos expuestos sobre el filo.',
@@ -97,7 +100,7 @@ export const SEED_TRAILS: SeedTrail[] = [
     ],
   },
   {
-    id: 'los-terrones',
+    id: '7b1f0c2a-0004-4a00-8000-000000000004',
     name: 'Los Terrones. Circuito de las formaciones',
     description:
       'Circuito corto y señalizado entre formaciones de arenisca, apto para una salida de medio día.',

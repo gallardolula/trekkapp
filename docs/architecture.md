@@ -249,7 +249,7 @@ imported rather than reimplemented, so the two cannot drift.
 | `/api/reports` | GET | Reports delta since cursor, each row flagged as the caller's own or not | Required | Built |
 | `/api/moderation/trails` | GET | Review queue for contributed trails | Moderator role | Built |
 | `/api/moderation/trails/:id/review` | POST | Approve or reject a submission | Moderator role | Built |
-| `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Pending |
+| `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Built |
 | `/api/regions` | GET | Available offline tile regions and versions | Required | Pending |
 
 The delta cursor is formatted by PostgreSQL and never rebuilt from a
@@ -262,7 +262,7 @@ synchronisation, indefinitely.
 | --- | --- |
 | Contributed trail validation | Point count, bounding box within the covered region, self-intersection and implausible speed checks before entering moderation |
 | Derived attributes | Recomputed server-side on ingest; client values are never trusted ([ADR-0003](./adr/0003-derived-attributes-computed-on-write.md)) |
-| Forecast caching | Per trail and date, TTL 3 h; the upstream provider is never called per device |
+| Forecast caching | Per trail and date, TTL 3 h; the upstream provider is never called per device. Asked about the midpoint of the track, not its start. When the provider does not answer, anything stored is served and labelled stale rather than withheld |
 | Rate limiting | Per account and per IP on write endpoints |
 
 Storage details: [data-model.md § Server model](./data-model.md#5-server-model-postgresql--postgis).

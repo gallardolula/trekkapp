@@ -7,6 +7,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 
 import { authenticatePlugin } from './plugins/authenticate';
 import { authRoutes } from './routes/auth';
+import { forecastRoutes } from './routes/forecast';
 import { reportRoutes } from './routes/reports';
 import { trailRoutes } from './routes/trails';
 
@@ -22,6 +23,7 @@ export function buildApp(options: { logger?: boolean } = {}): FastifyInstance {
   app.register(authRoutes);
   app.register(trailRoutes);
   app.register(reportRoutes);
+  app.register(forecastRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
 

@@ -17,6 +17,6 @@
     "forceConsistentCasingInFileNames": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts", "../src/domain/**/*.ts"],
+  "include": ["src/**/*.ts", "../src/domain/**/*.ts", "../src/startup/seed.ts"],
   "exclude": ["../src/domain/__tests__/**", "src/__tests__/**", "dist"]
 }
