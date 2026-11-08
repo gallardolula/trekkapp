@@ -229,11 +229,12 @@ on the device.
 
 ## 5. Server model (PostgreSQL + PostGIS)
 
-Planned; not yet built. It mirrors the local model with three differences.
+Built, under `server/src/db/migrations`. It mirrors the local model with
+three differences.
 
 | Aspect | Server | Device |
 | --- | --- | --- |
-| Geometry | `LINESTRING` in a PostGIS column with a GiST index, enabling proximity queries | Ordered rows in `puntos` |
+| Geometry | Ordered rows in `track_points`, as on the device. A PostGIS `LINESTRING` with a GiST index was specified and is deferred until a requirement asks for a proximity query | Ordered rows in `track_points` |
 | Ownership | Every contribution and report carries an owner and a moderation state | Device-local only |
 | Change tracking | Monotonic `updated_at` plus tombstone rows for deletions, driving the delta cursor | `sincronizado_en` and the queue |
 

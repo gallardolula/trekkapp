@@ -18,6 +18,7 @@ template, with an explicit *Alternatives considered* section.
 | [0007](./0007-forecast-through-backend.md) | Forecast retrieved through the backend | Accepted | Integrations |
 | [0008](./0008-maplibre-for-map-rendering.md) | MapLibre Native for map rendering | Accepted | Mobile app |
 | [0009](./0009-deviation-alert-hysteresis.md) | Hysteresis in the deviation alert | Accepted | Rules engine |
+| [0010](./0010-defer-postgis.md) | Defer PostGIS until a proximity query exists | Accepted | Server data model |
 
 ## Writing a new record
 

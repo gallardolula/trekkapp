@@ -231,16 +231,32 @@ forever. Partial sync is a valid outcome and is reported as such.
 
 ## 8. Backend services
 
-| Endpoint | Method | Purpose | Auth |
-| --- | --- | --- | --- |
-| `/api/auth/registro`, `/api/auth/sesion` | POST | Account creation, login | Public |
-| `/api/senderos` | GET | Catalogue delta since cursor | Required |
-| `/api/senderos/:id/traza` | GET | Full track geometry | Required |
-| `/api/senderos/:id/pronostico` | GET | Cached forecast for the trail's coordinates | Required |
-| `/api/senderos` | POST | Submit a contributed trail | Required |
-| `/api/reportes` | POST | Submit trail-condition reports (idempotent) | Required |
-| `/api/regiones` | GET | Available offline tile regions and versions | Required |
-| `/api/moderacion/*` | — | Review queue for contributed trails | Moderator role |
+Built with Fastify and PostgreSQL, under `server/`. The derived attributes
+are recomputed there with the very same domain modules the device runs,
+imported rather than reimplemented, so the two cannot drift.
+
+| Endpoint | Method | Purpose | Auth | Status |
+| --- | --- | --- | --- | --- |
+| `/api/auth/register` | POST | Account creation | Public | Built |
+| `/api/auth/session` | POST | Sign in | Public | Built |
+| `/api/auth/refresh` | POST | Exchange a refresh token, rotating it | Public | Built |
+| `/api/auth/logout` | POST | Revoke every session of the account | Required | Built |
+| `/api/auth/me` | GET, PATCH | Read and update the hiker's own profile | Required | Built |
+| `/api/trails` | GET | Catalogue delta since cursor | Required | Built |
+| `/api/trails/:id/track` | GET | Full track geometry | Required | Built |
+| `/api/trails` | POST | Submit a contributed trail | Required | Built |
+| `/api/reports` | POST | Submit trail-condition reports (idempotent) | Required | Built |
+| `/api/reports` | GET | Reports delta since cursor | Required | Built |
+| `/api/moderation/trails` | GET | Review queue for contributed trails | Moderator role | Built |
+| `/api/moderation/trails/:id/review` | POST | Approve or reject a submission | Moderator role | Built |
+| `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Pending |
+| `/api/regions` | GET | Available offline tile regions and versions | Required | Pending |
+
+The delta cursor is formatted by PostgreSQL and never rebuilt from a
+JavaScript `Date`. A `Date` holds milliseconds while the column holds
+microseconds, so a cursor built in the application truncates the value and
+the last row of every page is returned again on the following
+synchronisation, indefinitely.
 
 | Concern | Decision |
 | --- | --- |

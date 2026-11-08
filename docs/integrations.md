@@ -50,16 +50,28 @@ the critical path is one more thing that can break in the field.
 
 ## 2. Runtime libraries — backend
 
-Planned; not yet built.
+Built, under `server/`. Authentication, the catalogue delta, contributed
+trails, moderation and report upload are in place. The forecast cache and
+the tile region index are not.
 
 | Library | Role | Why |
 | --- | --- | --- |
 | `fastify` | HTTP server | Schema-based validation built in, lower overhead than Express |
 | `pg` | PostgreSQL driver | |
-| PostGIS (extension) | Spatial indexing for proximity queries | |
-| `argon2` | Password hashing | Current recommendation over bcrypt |
+| `@node-rs/argon2` | Password hashing | Argon2id at the OWASP minimums. Chosen over the `argon2` package because it ships prebuilt binaries and needs no C toolchain on the development machine |
 | `jose` | JWT signing and verification | |
 | `zod` | Shared request/response schemas | Same definitions usable by the app's API client |
+| `fastify-plugin` | Decorator scope | Guards must be visible to every route, not only the plugin that declares them |
+
+PostgreSQL 18 both in development and on the deployment target, so the two
+cannot diverge on behaviour. PostGIS is **not** installed. It was specified
+for proximity queries and no current requirement asks for one, so the
+extension is introduced when the first such query exists rather than before.
+
+| Environment | Database | Application |
+| --- | --- | --- |
+| Development | PostgreSQL 18 through Postgres.app | Node, `tsx watch` |
+| Deployment | Supabase, free plan | Render web service, free plan, built from the repository with no container image |
 
 ---
 
