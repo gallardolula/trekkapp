@@ -19,7 +19,9 @@ import {
   View,
 } from 'react-native';
 
-import { saveProfile } from '../src/data/db';
+import { requestPublic } from '../src/data/api';
+import { saveProfile, saveUserId } from '../src/data/db';
+import { saveTokens } from '../src/data/session';
 import { Level } from '../src/domain/types';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
@@ -31,6 +33,25 @@ const LEVELS: { level: Level; detail: string }[] = [
 
 const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 
+// The same rules the server enforces. Checking them here too is not
+// duplication for its own sake: it spares a round trip and, more to the
+// point, tells the person what is wrong while they are still typing.
+const PASSWORD_RULES: { test: (v: string) => boolean; label: string }[] = [
+  { test: (v) => v.length >= 8, label: 'ocho caracteres' },
+  { test: (v) => /[A-Z]/.test(v), label: 'una mayúscula' },
+  { test: (v) => /[a-z]/.test(v), label: 'una minúscula' },
+  { test: (v) => /[0-9]/.test(v), label: 'un número' },
+  { test: (v) => /[^A-Za-z0-9]/.test(v), label: 'un símbolo' },
+];
+
+// What the server answers, mapped to what the person reads. The server
+// speaks in codes precisely so the wording belongs to the application.
+const SERVER_ERRORS: Record<string, string> = {
+  email_taken: 'Ya existe una cuenta con ese correo. Probá iniciar sesión.',
+  weak_password: 'La contraseña no cumple los requisitos.',
+  invalid_body: 'Revisá los datos ingresados.',
+};
+
 export default function SignUp() {
   const router = useRouter();
   const { c, refresh } = useTheme();
@@ -38,20 +59,61 @@ export default function SignUp() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [level, setLevel] = useState<Level | null>(null);
   const [attempted, setAttempted] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
+  const missing = PASSWORD_RULES.filter((r) => !r.test(password)).map((r) => r.label);
   const nameError = name.trim().length < 2 ? 'Ingresá tu nombre.' : null;
   const emailError = !validEmail(email) ? 'Ingresá un correo válido.' : null;
+  const passwordError = missing.length > 0 ? `Falta ${missing.join(', ')}.` : null;
   const levelError = level === null ? 'Elegí tu nivel de experiencia.' : null;
-  const valid = !nameError && !emailError && !levelError;
+  const valid = !nameError && !emailError && !passwordError && !levelError;
 
+  /**
+   * Creates the account against the server and then stores it locally.
+   *
+   * This is the one moment that needs coverage. It does not constrain the
+   * intended use, because the trail and its cartography have to be
+   * downloaded before leaving anyway, and it is what lets the account be
+   * recovered later from another device.
+   */
   async function createAccount() {
     setAttempted(true);
-    if (!valid || !level) return;
-    await saveProfile({ name: name.trim(), email: email.trim().toLowerCase(), level });
-    refresh();
-    router.replace('/');
+    setServerError(null);
+    if (!valid || !level || working) return;
+
+    setWorking(true);
+    try {
+      const created = await requestPublic<{
+        user: { id: string };
+        accessToken: string;
+        refreshToken: string;
+      }>('/api/auth/register', {
+        method: 'POST',
+        body: { name: name.trim(), email: email.trim().toLowerCase(), password, level },
+      });
+
+      await saveTokens({
+        accessToken: created.accessToken,
+        refreshToken: created.refreshToken,
+      });
+      await saveProfile({ name: name.trim(), email: email.trim().toLowerCase(), level });
+      await saveUserId(created.user.id);
+      refresh();
+      router.replace('/');
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      setServerError(
+        code && SERVER_ERRORS[code]
+          ? SERVER_ERRORS[code]
+          : 'No pudimos crear la cuenta. Revisá tu conexión y volvé a intentar.',
+      );
+    } finally {
+      setWorking(false);
+    }
   }
 
   const levelColour = difficultyColour(c);
@@ -88,6 +150,19 @@ export default function SignUp() {
         />
         {attempted && emailError && <Text style={s.error}>{emailError}</Text>}
 
+        <Text style={s.label}>Contraseña</Text>
+        <TextInput
+          style={s.field}
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Al menos ocho caracteres"
+          placeholderTextColor={c.mutedText}
+          autoCapitalize="none"
+          autoComplete="new-password"
+          secureTextEntry
+        />
+        {attempted && passwordError && <Text style={s.error}>{passwordError}</Text>}
+
         <Text style={s.label}>Nivel de experiencia</Text>
         {LEVELS.map((o) => {
           const chosen = level === o.level;
@@ -107,14 +182,20 @@ export default function SignUp() {
         })}
         {attempted && levelError && <Text style={s.error}>{levelError}</Text>}
 
-        <Pressable style={[s.button, !valid && s.buttonOff]} onPress={createAccount}>
-          <Text style={s.buttonText}>Crear cuenta</Text>
+        {serverError && <Text style={s.serverError}>{serverError}</Text>}
+
+        <Pressable
+          style={[s.button, (!valid || working) && s.buttonOff]}
+          onPress={createAccount}
+          disabled={working}
+        >
+          <Text style={s.buttonText}>{working ? 'Creando cuenta…' : 'Crear cuenta'}</Text>
         </Pressable>
 
         <Text style={s.note}>
-          La cuenta se registra en el servidor al sincronizar, de modo que puedas recuperarla desde
-          otro dispositivo. Hasta entonces el perfil queda en este teléfono y el recorrido funciona
-          sin conexión.
+          La cuenta se registra en el servidor, así que este paso necesita conexión por única vez.
+          Eso es lo que te permite recuperarla desde otro dispositivo. Después el recorrido completo
+          funciona sin señal.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -137,7 +218,16 @@ const styles = (c: Palette) =>
       color: c.text,
       fontSize: 15,
     },
-    error: { color: c.danger, fontSize: 12, marginTop: sp.xs },
+      error: { color: c.danger, fontSize: 12, marginTop: sp.xs },
+    serverError: {
+      color: c.danger,
+      backgroundColor: c.dangerSoft,
+      borderRadius: 8,
+      padding: sp.md,
+      marginTop: sp.md,
+      fontSize: 13,
+      lineHeight: 19,
+    },
     option: {
       backgroundColor: c.surface,
       borderColor: c.border,

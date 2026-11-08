@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { countPendingSync, listTrails, Profile, readProfile, TrailSummary } from '../src/data/db';
+import { NotAuthenticatedError, synchronise } from '../src/sync/engine';
 import { prepareStorage } from '../src/startup/storage';
 import { LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
@@ -23,6 +24,8 @@ export default function Home() {
   const [pending, setPending] = useState(0);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -52,8 +55,46 @@ export default function Home() {
     }, [refresh]),
   );
 
+  /**
+   * Runs a synchronisation at the hiker's request.
+   *
+   * Explicit and never automatic, because the walk needs no network and a
+   * background sync would spend the one resource that cannot be replaced
+   * in the field on information nobody is waiting for.
+   */
+  async function runSync() {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const result = await synchronise();
+      const parts: string[] = [];
+      const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+      if (result.reportsSent > 0) parts.push(plural(result.reportsSent, 'reporte enviado', 'reportes enviados'));
+      if (result.trailsReceived > 0) parts.push(plural(result.trailsReceived, 'sendero actualizado', 'senderos actualizados'));
+      if (result.reportsReceived > 0) parts.push(plural(result.reportsReceived, 'reporte recibido', 'reportes recibidos'));
+      if (result.reportsRejected > 0) parts.push(plural(result.reportsRejected, 'rechazado', 'rechazados'));
+      setSyncMessage(
+        parts.length === 0
+          ? 'Todo al día, no había nada para sincronizar'
+          : `${parts.join(', ')}${result.complete ? '' : '. Queda más por traer, volvé a sincronizar'}`,
+      );
+      const [list, pend] = await Promise.all([listTrails(), countPendingSync()]);
+      setTrails(list);
+      setPending(pend);
+    } catch (e) {
+      setSyncMessage(
+        e instanceof NotAuthenticatedError
+          ? 'Tu sesión venció. Volvé a iniciar sesión para sincronizar.'
+          : 'No pudimos sincronizar. Revisá tu conexión y volvé a intentar.',
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (error) {
-    return (
+  return (
       <View style={s.centre}>
         <Text style={s.errorTitle}>No se pudo abrir el almacenamiento local</Text>
         <Text style={s.errorDetail}>{error}</Text>
@@ -140,10 +181,21 @@ export default function Home() {
         <Text style={s.secondaryText}>Tu perfil y apariencia</Text>
       </Pressable>
 
+      <Pressable
+        style={[s.secondary, syncing && s.secondaryOff]}
+        onPress={runSync}
+        disabled={syncing}
+      >
+        <Text style={s.secondaryText}>
+          {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
+        </Text>
+      </Pressable>
+
       <Text style={s.footer}>
-        {pending === 0
-          ? 'No hay reportes pendientes de sincronizar'
-          : `${pending} reporte${pending === 1 ? '' : 's'} esperando conexión`}
+        {syncMessage ??
+          (pending === 0
+            ? 'No hay reportes pendientes de sincronizar'
+            : `${pending} reporte${pending === 1 ? '' : 's'} esperando conexión`)}
       </Text>
     </ScrollView>
   );
@@ -221,6 +273,7 @@ const styles = (c: Palette) =>
       alignItems: 'center',
       marginTop: sp.md,
     },
+    secondaryOff: { opacity: 0.5 },
     secondaryText: { color: c.text, fontSize: 14, fontWeight: '600' },
     footer: { textAlign: 'center', color: c.mutedText, fontSize: 11, marginTop: sp.lg },
   });

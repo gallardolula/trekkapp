@@ -79,7 +79,13 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ accepted, rejected });
   });
 
-  /** Reports of published trails since a cursor, for the device to show. */
+  /**
+   * Reports of published trails since a cursor, for the device to show.
+   *
+   * Each row says whether it belongs to the caller. The device cannot work
+   * that out on its own, because a report of its own that was accepted
+   * comes back indistinguishable from anybody else's.
+   */
   app.get('/api/reports', { preHandler: [app.authenticate] }, async (request, reply) => {
     const parsed = deltaQuerySchema.safeParse(request.query);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' });
@@ -93,11 +99,12 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
       lat: number | null;
       lon: number | null;
       created_at: Date;
+      owner_id: string;
       cursor_value: string;
     }>(
       // Formatted by the database to keep microsecond precision; see the
       // note on the cursor in routes/trails.ts.
-      `SELECT r.id, r.trail_id, r.kind, r.comment, r.lat, r.lon, r.created_at,
+      `SELECT r.id, r.trail_id, r.kind, r.comment, r.lat, r.lon, r.created_at, r.owner_id,
               to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_value
          FROM reports r
          JOIN trails t ON t.id = r.trail_id
@@ -118,6 +125,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
         lat: r.lat ?? undefined,
         lon: r.lon ?? undefined,
         createdAt: r.created_at.toISOString(),
+        own: r.owner_id === request.user!.id,
       })),
       cursor: last ? last.cursor_value : since ?? null,
       complete: rows.length < limit,

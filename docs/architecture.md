@@ -246,7 +246,7 @@ imported rather than reimplemented, so the two cannot drift.
 | `/api/trails/:id/track` | GET | Full track geometry | Required | Built |
 | `/api/trails` | POST | Submit a contributed trail | Required | Built |
 | `/api/reports` | POST | Submit trail-condition reports (idempotent) | Required | Built |
-| `/api/reports` | GET | Reports delta since cursor | Required | Built |
+| `/api/reports` | GET | Reports delta since cursor, each row flagged as the caller's own or not | Required | Built |
 | `/api/moderation/trails` | GET | Review queue for contributed trails | Moderator role | Built |
 | `/api/moderation/trails/:id/review` | POST | Approve or reject a submission | Moderator role | Built |
 | `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Pending |

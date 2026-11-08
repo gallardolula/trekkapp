@@ -371,3 +371,290 @@ export async function recordAlert(a: {
     now(),
   );
 }
+
+// ------------------------------------------------------------ sync state --
+
+/** Reads a value the synchronisation remembers between runs, such as a cursor. */
+export async function readSyncState(key: string): Promise<string | null> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM sync_state WHERE key = ?',
+    key,
+  );
+  return row?.value ?? null;
+}
+
+export async function saveSyncState(key: string, value: string): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `INSERT INTO sync_state (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    key,
+    value,
+    now(),
+  );
+}
+
+// --------------------------------------------------------------- identity --
+
+export async function saveUserId(userId: string): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync('UPDATE profile SET user_id = ?, updated_at = ? WHERE id = 1', userId, now());
+}
+
+export async function readUserId(): Promise<string | null> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ user_id: string | null }>(
+    'SELECT user_id FROM profile WHERE id = 1',
+  );
+  return row?.user_id ?? null;
+}
+
+// ------------------------------------------------------- outbound reports --
+
+export interface PendingReport {
+  id: string;
+  trailId: string;
+  kind: string;
+  comment?: string;
+  lat?: number;
+  lon?: number;
+  createdAt: string;
+}
+
+/** Reports waiting in the queue, oldest first, with the queue's own order. */
+export async function listPendingReports(limit = 100): Promise<PendingReport[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{
+    id: string;
+    trail_id: string;
+    kind: string;
+    comment: string | null;
+    lat: number | null;
+    lon: number | null;
+    created_at: string;
+  }>(
+    `SELECT r.id, r.trail_id, r.kind, r.comment, r.lat, r.lon, r.created_at
+       FROM sync_queue q
+       JOIN reports r ON r.id = q.entity_id
+      WHERE q.entity = 'report' AND q.operation = 'create'
+      ORDER BY q.created_at
+      LIMIT ?`,
+    limit,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    trailId: r.trail_id,
+    kind: r.kind,
+    createdAt: r.created_at,
+    ...(r.comment !== null ? { comment: r.comment } : {}),
+    ...(r.lat !== null ? { lat: r.lat } : {}),
+    ...(r.lon !== null ? { lon: r.lon } : {}),
+  }));
+}
+
+/**
+ * Confirms reports the server accepted.
+ *
+ * The report is stamped and its queue entry removed in one transaction, so
+ * the queue can never be emptied for something that was not recorded as
+ * sent, nor keep an entry for something already confirmed.
+ */
+export async function confirmReportsSent(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openDatabase();
+  const marks = ids.map(() => '?').join(', ');
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE reports SET synchronised_at = ? WHERE id IN (${marks})`,
+      now(),
+      ...ids,
+    );
+    await db.runAsync(
+      `DELETE FROM sync_queue WHERE entity = 'report' AND entity_id IN (${marks})`,
+      ...ids,
+    );
+  });
+}
+
+/**
+ * Records a rejection against the queue entry without dropping it.
+ *
+ * The entry stays so the failure is visible and can be inspected, rather
+ * than a report disappearing with no trace of why it never arrived.
+ */
+export async function recordSyncFailure(id: string, reason: string): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `UPDATE sync_queue SET attempts = attempts + 1, last_error = ?
+      WHERE entity = 'report' AND entity_id = ?`,
+    reason,
+    id,
+  );
+}
+
+// -------------------------------------------------------- inbound records --
+
+/** A trail as the server describes it, with the attributes it computed. */
+export interface RemoteTrail {
+  id: string;
+  name: string;
+  description?: string;
+  status: TrailStatus;
+  updatedAt: string;
+  attributes: {
+    distanceM: number;
+    elevationGainM: number;
+    effortIndex: number;
+    difficulty: Level;
+  };
+}
+
+/**
+ * Stores a trail received from the server.
+ *
+ * Unlike `saveTrail`, the attributes are not recomputed. The server
+ * recalculated them on ingest from the same geometry and the same domain
+ * code, and recomputing them here would only create a second opinion.
+ */
+export async function saveRemoteTrail(trail: RemoteTrail): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `INSERT INTO trails
+       (id, name, description, distance_m, elevation_gain_m, effort_index,
+        difficulty, status, source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'preloaded', ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       description = excluded.description,
+       distance_m = excluded.distance_m,
+       elevation_gain_m = excluded.elevation_gain_m,
+       effort_index = excluded.effort_index,
+       difficulty = excluded.difficulty,
+       status = excluded.status,
+       updated_at = excluded.updated_at`,
+    trail.id,
+    trail.name,
+    trail.description ?? null,
+    trail.attributes.distanceM,
+    trail.attributes.elevationGainM,
+    trail.attributes.effortIndex,
+    trail.attributes.difficulty,
+    trail.status,
+    now(),
+    trail.updatedAt,
+  );
+}
+
+/** Replaces the geometry of a trail with the one the server holds. */
+export async function saveTrackPoints(trailId: string, points: Point[]): Promise<void> {
+  const db = await openDatabase();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM track_points WHERE trail_id = ?', trailId);
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      await db.runAsync(
+        'INSERT INTO track_points (trail_id, position, lat, lon, ele, time) VALUES (?, ?, ?, ?, ?, ?)',
+        trailId,
+        i,
+        p.lat,
+        p.lon,
+        p.ele ?? null,
+        p.time ?? null,
+      );
+    }
+  });
+}
+
+export async function countTrackPoints(trailId: string): Promise<number> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM track_points WHERE trail_id = ?',
+    trailId,
+  );
+  return row?.n ?? 0;
+}
+
+export interface RemoteReport {
+  id: string;
+  trailId: string;
+  kind: string;
+  comment?: string;
+  lat?: number;
+  lon?: number;
+  createdAt: string;
+}
+
+/**
+ * Stores a report received from the server.
+ *
+ * A report of this hiker's own comes back once the server accepts it, and
+ * it is the very same row, recognised by the identifier the device
+ * generated. The ownership flag is therefore only set on insert and left
+ * alone afterwards.
+ */
+export async function saveRemoteReport(report: RemoteReport, own: boolean): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `INSERT INTO reports
+       (id, trail_id, kind, comment, lat, lon, created_at, synchronised_at, is_own)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       kind = excluded.kind,
+       comment = excluded.comment,
+       synchronised_at = excluded.synchronised_at`,
+    report.id,
+    report.trailId,
+    report.kind,
+    report.comment ?? null,
+    report.lat ?? null,
+    report.lon ?? null,
+    report.createdAt,
+    now(),
+    own ? 1 : 0,
+  );
+}
+
+export async function trailExists(trailId: string): Promise<boolean> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM trails WHERE id = ?',
+    trailId,
+  );
+  return (row?.n ?? 0) > 0;
+}
+
+export interface StoredReport {
+  id: string;
+  trailId: string;
+  kind: string;
+  comment?: string;
+  createdAt: string;
+  pending: boolean;
+}
+
+/** Reports of a trail, newest first, for the trail detail screen. */
+export async function listTrailReports(trailId: string, limit = 20): Promise<StoredReport[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{
+    id: string;
+    trail_id: string;
+    kind: string;
+    comment: string | null;
+    created_at: string;
+    synchronised_at: string | null;
+  }>(
+    `SELECT id, trail_id, kind, comment, created_at, synchronised_at
+       FROM reports WHERE trail_id = ? ORDER BY created_at DESC LIMIT ?`,
+    trailId,
+    limit,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    trailId: r.trail_id,
+    kind: r.kind,
+    createdAt: r.created_at,
+    pending: r.synchronised_at === null,
+    ...(r.comment !== null ? { comment: r.comment } : {}),
+  }));
+}

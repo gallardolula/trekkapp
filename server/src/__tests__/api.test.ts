@@ -469,6 +469,37 @@ describe('report upload', () => {
     expect(response.json().rejected).toEqual([{ id: orphan, reason: 'unknown_trail' }]);
   });
 
+  it('marks which reports belong to the caller', async () => {
+    // The device cannot work this out on its own, because a report of its
+    // own that was accepted comes back looking like anybody else's.
+    const { token, trailId } = await publishedTrail();
+    const mine = '66666666-6666-4666-8666-666666666666';
+    await app.inject({
+      method: 'POST',
+      url: '/api/reports',
+      headers: auth(token),
+      payload: report(trailId, mine),
+    });
+
+    const other = await register();
+    const theirs = '77777777-7777-4777-8777-777777777777';
+    await app.inject({
+      method: 'POST',
+      url: '/api/reports',
+      headers: auth(other.body.accessToken),
+      payload: report(trailId, theirs),
+    });
+
+    const seenByOther = await app.inject({
+      method: 'GET',
+      url: '/api/reports',
+      headers: auth(other.body.accessToken),
+    });
+    const rows: { id: string; own: boolean }[] = seenByOther.json().reports;
+    expect(rows.find((r) => r.id === theirs)?.own).toBe(true);
+    expect(rows.find((r) => r.id === mine)?.own).toBe(false);
+  });
+
   it('does not return the same report twice across synchronisations', async () => {
     const { token, trailId } = await publishedTrail();
     await app.inject({

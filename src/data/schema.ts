@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const MIGRATIONS: string[] = [
   // v1 - initial schema
@@ -103,5 +103,32 @@ export const MIGRATIONS: string[] = [
     issued_at  TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_alerts_trail ON issued_alerts(trail_id);
+  `,
+
+  // v2 - what synchronising with the server needs
+  `
+  -- Delta cursors and anything else the sync has to remember between runs.
+  -- A table rather than a preferences file, so a cursor advances inside the
+  -- same transaction that stores the rows it accounts for.
+  CREATE TABLE IF NOT EXISTS sync_state (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+
+  -- The account lives on the server. The identifier is kept here so a report
+  -- can be attributed before the first synchronisation, and so the device
+  -- can tell that the profile it holds belongs to the session it has.
+  ALTER TABLE profile ADD COLUMN user_id TEXT;
+
+  -- Reports written on this device and reports pulled from the server share
+  -- a table, because a report of mine comes back from the server once it is
+  -- accepted and is then the very same row. The flag is what the profile
+  -- uses to list only what this hiker wrote.
+  ALTER TABLE reports ADD COLUMN is_own INTEGER NOT NULL DEFAULT 1;
+
+  -- Mirrors the server's cursor column, so a trail already up to date is not
+  -- written again on every delta.
+  ALTER TABLE trails ADD COLUMN updated_at TEXT;
   `,
 ];
