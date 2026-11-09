@@ -29,11 +29,18 @@ import {
   saveForecast,
   TrailSummary,
 } from '../../src/data/db';
-import { fetchForecast } from '../../src/data/weather';
+import { fetchWeather } from '../../src/data/weather';
+import { WeatherStrip } from '../../src/ui/WeatherStrip';
 import { anchorOnTrack } from '../../src/domain/geo';
 import { reportLabel } from '../../src/domain/reports';
 import { evaluateAttempt, evaluateWeather } from '../../src/domain/rules';
-import { AttemptDecision, Level, Point, WeatherAlert } from '../../src/domain/types';
+import {
+  AttemptDecision,
+  HourlyForecast,
+  Level,
+  Point,
+  WeatherAlert,
+} from '../../src/domain/types';
 import { prepareStorage } from '../../src/startup/storage';
 import {
   downloadedTrailIds,
@@ -72,6 +79,7 @@ export default function TrailDetail() {
   const [weather, setWeather] = useState<WeatherAlert | null>(null);
   const [obtainedAt, setObtainedAt] = useState<string | null>(null);
   const [noForecast, setNoForecast] = useState(false);
+  const [hours, setHours] = useState<HourlyForecast[]>([]);
   const [reports, setReports] = useState<StoredReport[]>([]);
   const [downloaded, setDownloaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -115,15 +123,16 @@ export default function TrailDetail() {
         setWeather(evaluateWeather(stored.forecast));
         setObtainedAt(stored.obtainedAt);
       }
-      const fresh = await fetchForecast(t.id);
+      const fresh = await fetchWeather(t.id);
       if (!active) return;
-      if (fresh) {
-        await saveForecast(t.id, fresh.forecast);
-        setWeather(evaluateWeather(fresh.forecast));
+      setHours(fresh.hours);
+      if (fresh.today) {
+        await saveForecast(t.id, fresh.today.forecast);
+        setWeather(evaluateWeather(fresh.today.forecast));
         // The age is the server's, not the moment this device received it.
         // A forecast the server cached three hours ago is three hours old
         // however recently it travelled.
-        setObtainedAt(fresh.obtainedAt);
+        setObtainedAt(fresh.today.obtainedAt);
       } else if (!stored) {
         setNoForecast(true);
       }
@@ -299,6 +308,12 @@ export default function TrailDetail() {
         </View>
       )}
 
+      {hours.length > 0 && (
+        <View style={s.weatherStrip}>
+          <WeatherStrip hours={hours} obtainedAt={obtainedAt} />
+        </View>
+      )}
+
       {noForecast && (
         <View style={[s.notice, { backgroundColor: c.background, borderColor: c.border }]}>
           <Text style={s.noticeText}>
@@ -407,6 +422,7 @@ export default function TrailDetail() {
 const styles = (c: Palette) =>
   StyleSheet.create({
     hero: { borderRadius: 18, overflow: 'hidden', marginBottom: sp.md },
+    weatherStrip: { marginTop: sp.lg, marginBottom: sp.md },
     downloadState: { alignItems: 'center', gap: sp.xs, marginTop: sp.md },
     downloadText: { color: c.mutedText, fontSize: 12.5 },
     downloadDone: { color: c.success, fontSize: 13, fontWeight: '700' },

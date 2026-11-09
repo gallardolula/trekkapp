@@ -99,6 +99,22 @@ export interface Forecast {
   maxTempC: number;
 }
 
+/**
+ * One hour of the forecast.
+ *
+ * A day's minimum and maximum say whether to go; the hours say when to
+ * leave and when to be off the ridge, which on a mountain is the decision
+ * that actually gets made.
+ */
+export interface HourlyForecast {
+  /** ISO-8601 local to the trail, which is what the provider returns. */
+  time: string;
+  tempC: number;
+  /** Chance of rain in that hour, nought to a hundred. */
+  rainChance: number;
+  windKmh: number;
+}
+
 export type Severity = 'none' | 'warning' | 'risk';
 
 export interface WeatherAlert {

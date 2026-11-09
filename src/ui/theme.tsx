@@ -29,42 +29,61 @@ export interface Palette {
   canvasLine: string;
 }
 
+/**
+ * The palette.
+ *
+ * Four tones carry the whole application. A petrol blue, almost a teal,
+ * for everything the hiker acts on. A brown for what the ground is made
+ * of, which is also the colour paths are drawn in on the map. A dark
+ * green for what went well. And a cream the whole thing sits on.
+ *
+ * They are muted on purpose. This is read outdoors in daylight, where
+ * saturated colour competes with the terrain instead of sitting on top of
+ * it, and read again at night, where it burns.
+ *
+ * The map has its own palette, in server/src/tiles/style.ts, and
+ * deliberately does not borrow these. A map is read at arm's length and
+ * needs its own contrast.
+ */
 const LIGHT: Palette = {
-  background: '#f4f6f8',
-  surface: '#ffffff',
-  border: '#e1e5ea',
-  text: '#15181d',
-  mutedText: '#6b7280',
-  primary: '#1c5cab',
-  primarySoft: '#e8f0fb',
-  onPrimary: '#ffffff',
-  danger: '#c14e1f',
-  dangerSoft: '#fbeee7',
-  warning: '#a5761a',
-  warningSoft: '#fdf4e3',
-  success: '#2f7d4f',
-  successSoft: '#e7f3ec',
-  canvas: '#e8ece7',
-  canvasLine: '#d2d9d0',
+  background: '#f3f0e6',
+  surface: '#fbf9f3',
+  border: '#dcd6c6',
+  text: '#1b2b2e',
+  mutedText: '#6d6a5f',
+  // Petrol blue. Primary actions, the active tab, the trail on a card.
+  primary: '#1e4147',
+  primarySoft: '#dfe7e7',
+  onPrimary: '#fbf9f3',
+  // Brown, for what needs attention and for the paths themselves.
+  danger: '#8a4a2c',
+  dangerSoft: '#f3e6dc',
+  warning: '#7a5236',
+  warningSoft: '#f2e9dd',
+  // Dark green, for what is ready and what went well.
+  success: '#2f5a46',
+  successSoft: '#e1eae4',
+  canvas: '#e3e8e6',
+  canvasLine: '#cbd5d2',
 };
 
 const DARK: Palette = {
-  background: '#0f1216',
-  surface: '#171b21',
-  border: '#2a313a',
-  text: '#eef1f5',
-  mutedText: '#9aa4b2',
-  primary: '#6da7ec',
-  primarySoft: '#17283c',
-  onPrimary: '#0f1216',
-  danger: '#e87a4d',
-  dangerSoft: '#3a221a',
-  warning: '#d8a948',
-  warningSoft: '#332a16',
-  success: '#5fc08a',
-  successSoft: '#172c20',
-  canvas: '#1b2220',
-  canvasLine: '#2d3833',
+  background: '#101718',
+  surface: '#192224',
+  border: '#2c383a',
+  text: '#e9e5d9',
+  mutedText: '#98958a',
+  primary: '#7fb0b6',
+  primarySoft: '#1a2d30',
+  onPrimary: '#101718',
+  danger: '#c8805c',
+  dangerSoft: '#2f2119',
+  warning: '#bb9268',
+  warningSoft: '#2d2419',
+  success: '#7aae92',
+  successSoft: '#1a2c24',
+  canvas: '#182021',
+  canvasLine: '#283335',
 };
 
 export const sp = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const;

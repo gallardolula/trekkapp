@@ -95,7 +95,7 @@ export async function forecastRoutes(app: FastifyInstance): Promise<void> {
       const point = await midpoint(pool, trailId);
       if (!point) return reply.code(409).send({ error: 'trail_without_geometry' });
 
-      const days = await fetchForecast(point.lat, point.lon);
+      const { daily: days, hourly } = await fetchForecast(point.lat, point.lon);
 
       if (days.length === 0) {
         // The provider did not answer. Anything already stored, even past
@@ -109,7 +109,9 @@ export async function forecastRoutes(app: FastifyInstance): Promise<void> {
           [trailId],
         );
         if (stale.rowCount && stale.rowCount > 0) {
-          return reply.send({ trailId, days: stale.rows.map(present), source: 'stale' });
+          // No hours with a stale answer. They are only worth reading
+          // while they are still ahead of the hiker, and these are not.
+          return reply.send({ trailId, days: stale.rows.map(present), hourly: [], source: 'stale' });
         }
         return reply.code(503).send({ error: 'forecast_unavailable' });
       }
@@ -120,6 +122,7 @@ export async function forecastRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({
         trailId,
         days: days.map((forecast) => ({ forecast, obtainedAt })),
+        hourly,
         source: 'upstream',
       });
     },

@@ -111,7 +111,7 @@ describe('authorisation', () => {
 describe('caching', () => {
   it('calls the provider on the first request and stores the result', async () => {
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([DAY()]);
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
 
     const response = await get(app, trailId, token);
 
@@ -128,7 +128,7 @@ describe('caching', () => {
     // This is the whole point of the endpoint. Three devices planning the
     // same outing must produce one upstream call, not three.
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([DAY()]);
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
 
     await get(app, trailId, token);
     const second = await get(app, trailId, token);
@@ -141,7 +141,7 @@ describe('caching', () => {
 
   it('calls the provider again once the stored forecast is older than the window', async () => {
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([DAY()]);
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
     await get(app, trailId, token);
 
     await pool.query(
@@ -159,7 +159,7 @@ describe('caching', () => {
     // A trail long enough for the weather to differ along it is better
     // represented by its middle than by a trailhead down in a valley.
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([DAY()]);
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
 
     await get(app, trailId, token);
 
@@ -175,14 +175,14 @@ describe('when the provider does not answer', () => {
     // A forecast read as stale is still useful. Presenting it as current
     // would not be, which is why the age travels with it.
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([DAY()]);
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
     await get(app, trailId, token);
 
     await pool.query(
       `UPDATE forecasts SET obtained_at = now() - interval '3 days' WHERE trail_id = $1`,
       [trailId],
     );
-    upstream.mockResolvedValue([]);
+    upstream.mockResolvedValue({ daily: [], hourly: [] });
 
     const response = await get(app, trailId, token);
 
@@ -193,7 +193,7 @@ describe('when the provider does not answer', () => {
 
   it('answers 503 when there is nothing stored either', async () => {
     const { token, trailId } = await published();
-    upstream.mockResolvedValue([]);
+    upstream.mockResolvedValue({ daily: [], hourly: [] });
 
     const response = await get(app, trailId, token);
 
