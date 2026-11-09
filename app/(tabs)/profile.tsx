@@ -9,7 +9,7 @@
  *  decision about power draw and night vision rather than a matter of
  *  taste.
  */
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Link, useFocusEffect, useRouter  } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -285,6 +285,14 @@ export default function Profile() {
         />
       )}
 
+      {/* The two requirements that can only be answered on a device.
+          Instrumentation rather than a feature, which is why it sits at
+          the foot of the screen and not in the tab bar. */}
+      <Text style={s.section}>Mediciones</Text>
+      <Link href="/measurements" style={s.link}>
+        Medir rendimiento y consumo de batería
+      </Link>
+
       <View style={s.leave}>
         <Button
           label="Cerrar sesión"
@@ -356,6 +364,7 @@ const styles = (c: Palette) =>
       padding: sp.lg,
     },
     cardText: { color: c.text, fontSize: 13.5 },
+    link: { color: c.primary, fontSize: 13.5, fontWeight: '700', paddingVertical: sp.sm },
     listItem: { color: c.mutedText, fontSize: 12.5, marginTop: sp.sm, lineHeight: 18 },
     cardNote: { color: c.mutedText, fontSize: 11.5, marginTop: sp.md, lineHeight: 16 },
 

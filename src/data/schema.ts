@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /**
  * A version 4 UUID built by SQLite itself.
@@ -393,6 +393,28 @@ export const MIGRATIONS: string[] = [
   -- and written together, and a row per preference would be a join for
   -- nothing.
   ALTER TABLE profile ADD COLUMN preferences TEXT;
+  `,
+
+  // v10 - what the battery actually does during a walk
+  `
+  -- RNF04 puts a ceiling on battery drain during navigation and the figure
+  -- was never measured, because it cannot be: it needs a real device, a
+  -- real walk and real time. This is the instrument.
+  --
+  -- Samples and not a single before and after, so the curve can be read.
+  -- A phone that loses nothing for forty minutes and then eight per cent
+  -- in five is telling a different story from one that drains evenly, and
+  -- an average of the two ends hides which one happened.
+  CREATE TABLE IF NOT EXISTS battery_samples (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    session   TEXT NOT NULL,
+    -- 0 to 100. Whole numbers on Android, finer on iOS.
+    level     REAL NOT NULL,
+    -- A reading taken while charging says nothing about consumption.
+    charging  INTEGER NOT NULL DEFAULT 0,
+    at        TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_battery_session ON battery_samples(session, at);
   `,
 ];
 
