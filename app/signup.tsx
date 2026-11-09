@@ -35,7 +35,7 @@ import { requestPublic } from '../src/data/api';
 import { readProfile } from '../src/data/db';
 import { Level } from '../src/domain/types';
 import { Button, Field, Notice, Question, StepBar } from '../src/ui/forms';
-import { confirmHandover, HANDOVER_WARNING } from '../src/ui/handover';
+import { confirmHandover } from '../src/ui/handover';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
 const LEVELS: { level: Level; detail: string }[] = [
@@ -276,7 +276,6 @@ export default function SignUp() {
           </>
         )}
 
-        {occupied && last && <Notice text={HANDOVER_WARNING} tone="warning" />}
         {serverError && <Notice text={serverError} tone="danger" />}
 
         <View style={s.actions}>

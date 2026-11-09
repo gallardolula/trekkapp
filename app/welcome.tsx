@@ -41,25 +41,11 @@ export default function Welcome() {
       <View style={s.middle}>
         <Logo colour={c.primary} accent={c.warning} />
         <Text style={s.brand}>TrekkApp</Text>
-        <Text style={s.claim}>El sendero sigue estando ahí cuando la señal no.</Text>
-        <Text style={s.tagline}>
-          Descargá la ruta y el mapa antes de salir, y caminá con el teléfono en modo avión.
-        </Text>
       </View>
 
       <View style={s.actions}>
         <Button label="Crear una cuenta" onPress={() => router.push('/signup')} />
         <Button label="Ya tengo cuenta" variant="outline" onPress={() => router.push('/signin')} />
-        {/* Said plainly and before the attempt, not as an error afterwards.
-            This is the one step of the application that cannot work
-            offline, and somebody opening it for the first time on a
-            mountain deserves to know that rather than to find out from a
-            message blaming their connection. */}
-        <Text style={s.note}>
-          Este primer paso necesita conexión, porque la cuenta vive en el servidor y es lo que te
-          permite recuperar tus senderos desde otro teléfono. Hacelo antes de salir. Después el
-          recorrido completo funciona sin señal.
-        </Text>
       </View>
     </View>
   );
@@ -70,27 +56,5 @@ const styles = (c: Palette) =>
     screen: { flex: 1, paddingHorizontal: sp.xl, justifyContent: 'space-between' },
     middle: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     brand: { fontSize: 32, fontWeight: '800', color: c.text, marginTop: sp.md },
-    claim: {
-      fontSize: 30,
-      fontWeight: '800',
-      color: c.text,
-      textAlign: 'center',
-      lineHeight: 38,
-      marginTop: sp.xl,
-    },
-    tagline: {
-      color: c.mutedText,
-      fontSize: 15,
-      lineHeight: 22,
-      textAlign: 'center',
-      marginTop: sp.md,
-    },
     actions: { gap: sp.sm },
-    note: {
-      color: c.mutedText,
-      fontSize: 11.5,
-      lineHeight: 16,
-      textAlign: 'center',
-      marginTop: sp.sm,
-    },
   });

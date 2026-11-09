@@ -18,7 +18,7 @@ import { adoptAccount, readProfile } from '../src/data/db';
 import { saveTokens } from '../src/data/session';
 import { Level } from '../src/domain/types';
 import { Button, Field, Notice, Question } from '../src/ui/forms';
-import { confirmHandover, HANDOVER_WARNING, reportHandover } from '../src/ui/handover';
+import { confirmHandover, reportHandover } from '../src/ui/handover';
 import { Palette, sp, useTheme } from '../src/ui/theme';
 
 const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
@@ -180,7 +180,6 @@ export default function SignIn() {
           returnKeyType="go"
         />
 
-        {handover && <Notice text={HANDOVER_WARNING} tone="warning" />}
         {serverError && <Notice text={serverError} tone="danger" />}
 
         <View style={s.actions}>
@@ -194,11 +193,6 @@ export default function SignIn() {
             Creá una
           </Link>
         </View>
-
-        <Text style={s.note}>
-          Este paso necesita conexión por única vez. Después el recorrido completo funciona sin
-          señal.
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );

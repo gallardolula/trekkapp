@@ -116,7 +116,7 @@ export async function downloadRegion(
   onProgress: (p: RegionProgress) => void,
 ): Promise<void> {
   const offline = manager();
-  if (!offline) throw new Error('el mapa sin conexión necesita la aplicación compilada');
+  if (!offline) throw new Error('la descarga del mapa no está disponible en este teléfono');
 
   // MapLibre refuses to store more than six thousand tiles by default, a
   // guard meant for commercial tile services with terms about it. This
@@ -303,7 +303,7 @@ export async function downloadTrail(
   onProgress: (p: RegionProgress) => void,
 ): Promise<void> {
   const offline = manager();
-  if (!offline) throw new Error('el mapa sin conexión necesita la aplicación compilada');
+  if (!offline) throw new Error('la descarga del mapa no está disponible en este teléfono');
   if (track.length < 2) throw new Error('este sendero todavía no tiene traza');
 
   offline.setTileCountLimit(TILE_LIMIT);
