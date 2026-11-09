@@ -36,6 +36,21 @@ export const sessionSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+/**
+ * The code that confirms an address.
+ *
+ * Exactly six digits, so a code with a stray space or a letter in it is
+ * refused here and never costs the account one of its five attempts.
+ */
+export const verifyCodeSchema = z.object({
+  email: z.email().max(254),
+  code: z.string().trim().regex(/^[0-9]{6}$/),
+});
+
+export const resendCodeSchema = z.object({
+  email: z.email().max(254),
+});
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1).max(500),
 });
@@ -93,6 +108,8 @@ export const reportBatchSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type SessionInput = z.infer<typeof sessionSchema>;
+export type VerifyCodeInput = z.infer<typeof verifyCodeSchema>;
+export type ResendCodeInput = z.infer<typeof resendCodeSchema>;
 export type TrailSubmissionInput = z.infer<typeof trailSubmissionSchema>;
 export type ReportInput = z.infer<typeof reportSchema>;
 export type DeltaQuery = z.infer<typeof deltaQuerySchema>;

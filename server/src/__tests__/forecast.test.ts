@@ -12,6 +12,7 @@ jest.mock('../weather/openMeteo', () => ({ fetchForecast: jest.fn() }));
 
 import { buildApp } from '../app';
 import { pool } from '../db/pool';
+import { createAccount } from './accounts';
 import { resetSchema } from './schema';
 import { CACHE_TTL_MS } from '../routes/forecast';
 import { fetchForecast } from '../weather/openMeteo';
@@ -63,13 +64,10 @@ let counter = 0;
 
 /** Creates an account, a trail with geometry, and returns a usable token. */
 async function published() {
-  const email = `forecast${++counter}.${Date.now()}@example.test`;
-  const registered = await app.inject({
-    method: 'POST',
-    url: '/api/auth/register',
-    payload: { name: 'Luciana', email, password: 'Sierras2026!', level: 'intermediate' },
+  const { token } = await createAccount(app, {
+    email: `forecast${++counter}.${Date.now()}@example.test`,
+    name: 'Luciana',
   });
-  const token = registered.json().accessToken as string;
 
   // A valid contribution is published by the system, so there is nothing to
   // review and nobody to review it. Each call puts its trail somewhere else

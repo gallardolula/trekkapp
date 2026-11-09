@@ -112,17 +112,14 @@ describe('the endpoints', () => {
 
     app = buildApp();
     await app.ready();
-    const registered = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
+    const { createAccount } = await import('./accounts');
+    token = (
+      await createAccount(app, {
         name: 'Mapa',
         email: `regions.${Date.now()}@example.test`,
-        password: 'Sierras2026!',
         level: 'beginner',
-      },
-    });
-    token = registered.json().accessToken;
+      })
+    ).token;
   });
 
   afterAll(async () => {
