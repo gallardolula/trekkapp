@@ -4,7 +4,7 @@
  *  catalogue the first time. Loading is idempotent, so restarting the
  *  application neither duplicates trails nor overwrites imported ones.
  */
-import { listTrails, openDatabase, saveTrail } from '../data/db';
+import { discardEmptyHikes, listTrails, openDatabase, saveTrail } from '../data/db';
 import { densify, SEED_TRAILS } from './seed';
 
 let preparation: Promise<void> | null = null;
@@ -24,6 +24,11 @@ async function prepareOnce(): Promise<void> {
       source: 'preloaded',
     });
   }
+
+  // Walks that recorded nothing. Earlier versions opened a recording when
+  // the screen opened rather than when the hiker started, so looking at a
+  // trail left a row behind every time.
+  await discardEmptyHikes();
 }
 
 /** Ensures the database is ready. Safe to call as often as needed. */

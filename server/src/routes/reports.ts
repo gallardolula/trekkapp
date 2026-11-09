@@ -8,7 +8,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import { pool, withTransaction } from '../db/pool';
-import { deltaQuerySchema, reportBatchSchema } from '../schemas';
+import { deltaQuerySchema, reportBatchSchema, reportSchema } from '../schemas';
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -19,9 +19,12 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
    * which is what lets the device keep an entry in its queue until it sees
    * a confirmation.
    *
-   * A report whose trail is unknown to the server is reported back as
-   * rejected rather than failing the batch, so one bad row cannot block the
-   * rest of a hike's reports forever.
+   * A report the server cannot accept, whether because it is malformed or
+   * because its trail is unknown here, is reported back as rejected rather
+   * than failing the batch, so one bad row cannot block the rest of a
+   * hike's reports forever. The device keeps a report queued until this
+   * endpoint names it, so a refusal of the whole batch would leave one
+   * unsendable row stopping every later synchronisation.
    */
   app.post('/api/reports', { preHandler: [app.authenticate] }, async (request, reply) => {
     const parsed = reportBatchSchema.safeParse(request.body);
@@ -34,7 +37,21 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
     const rejected: { id: string; reason: string }[] = [];
 
     await withTransaction(async (client) => {
-      for (const report of parsed.data.reports) {
+      for (const row of parsed.data.reports) {
+        // Validated one row at a time. The identifier is echoed back as it
+        // arrived, even when it is the invalid part, because that is what
+        // the device matches the rejection against. A row carrying no
+        // identifier at all cannot be named and is passed over.
+        const checked = reportSchema.safeParse(row);
+        if (!checked.success) {
+          const id = (row as { id?: unknown })?.id;
+          if (typeof id === 'string' && id.length > 0) {
+            rejected.push({ id, reason: 'invalid_report' });
+          }
+          continue;
+        }
+        const report = checked.data;
+
         const trail = await client.query('SELECT 1 FROM trails WHERE id = $1', [report.trailId]);
         if (trail.rowCount === 0) {
           rejected.push({ id: report.id, reason: 'unknown_trail' });

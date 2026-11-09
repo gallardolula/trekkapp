@@ -8,7 +8,49 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 7;
+
+/**
+ * A version 4 UUID built by SQLite itself.
+ *
+ * Used by the migration that rewrites the identifiers created under the old
+ * scheme. `randomblob` draws on the generator SQLite seeds from the
+ * operating system, so the rewritten identifiers are as good as the ones the
+ * application now generates. The version and variant digits are fixed
+ * rather than random, which is what makes the result parse as a UUID.
+ */
+const UUID = `lower(
+  hex(randomblob(4)) || '-' ||
+  hex(randomblob(2)) || '-4' ||
+  substr(hex(randomblob(2)), 2) || '-' ||
+  substr('89ab', abs(random()) % 4 + 1, 1) ||
+  substr(hex(randomblob(2)), 2) || '-' ||
+  hex(randomblob(6))
+)`;
+
+/**
+ * Clears what belonged to the account that was signed in before.
+ *
+ * Run when somebody signs in on a device that was holding a different
+ * account. The queue is the reason this cannot be skipped: an unsent report
+ * left there would travel up under the new account's name, attributed to
+ * somebody who never wrote it. The cursors have to go for the opposite
+ * reason, because they claim the device already holds everything up to a
+ * point and the new account would never receive what came before it.
+ *
+ * The preloaded catalogue and its geometry stay. They belong to nobody, and
+ * downloading them again needs coverage the hiker may not have at the
+ * moment they sign in. A trail somebody imported is not part of that
+ * catalogue and goes with the account that imported it.
+ */
+export const PREVIOUS_ACCOUNT_CLEANUP = `
+  DELETE FROM sync_queue;
+  DELETE FROM sync_state;
+  DELETE FROM issued_alerts;
+  DELETE FROM hikes;
+  DELETE FROM reports;
+  DELETE FROM trails WHERE source = 'imported';
+`;
 
 export const MIGRATIONS: string[] = [
   // v1 - initial schema
@@ -172,5 +214,146 @@ export const MIGRATIONS: string[] = [
     time      TEXT NOT NULL,
     PRIMARY KEY (hike_id, position)
   );
+  `,
+
+  // v5 - identifiers the server can store
+  `
+  -- A report and an imported trail used to be identified by the clock, as
+  -- 'report-1762700000000'. The server identifies both by UUID and rejects
+  -- the whole upload when one row does not carry one, so a single report
+  -- written under the old scheme blocked every later synchronisation.
+  --
+  -- The rows are kept and renamed rather than discarded: a report describes
+  -- a fallen tree somebody found, and it is the only copy there is.
+  CREATE TEMP TABLE id_map (kind TEXT NOT NULL, old TEXT NOT NULL, new TEXT NOT NULL);
+
+  INSERT INTO id_map (kind, old, new)
+  SELECT 'trail', id, ${UUID} FROM trails WHERE length(id) <> 36;
+
+  -- A trail is a parent row, and the foreign keys declare no ON UPDATE, so
+  -- renaming it in place would be refused. The row is copied under its new
+  -- identifier, the children are pointed at the copy, and the original is
+  -- deleted: by then nothing refers to it, so the cascade takes nothing.
+  INSERT INTO trails (id, name, description, distance_m, elevation_gain_m, effort_index,
+                      difficulty, status, source, downloaded_at, created_at, updated_at)
+  SELECT m.new, t.name, t.description, t.distance_m, t.elevation_gain_m, t.effort_index,
+         t.difficulty, t.status, t.source, t.downloaded_at, t.created_at, t.updated_at
+    FROM trails t JOIN id_map m ON m.kind = 'trail' AND m.old = t.id;
+
+  UPDATE track_points
+     SET trail_id = (SELECT new FROM id_map WHERE kind = 'trail' AND old = track_points.trail_id)
+   WHERE trail_id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  UPDATE reports
+     SET trail_id = (SELECT new FROM id_map WHERE kind = 'trail' AND old = reports.trail_id)
+   WHERE trail_id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  UPDATE forecasts
+     SET trail_id = (SELECT new FROM id_map WHERE kind = 'trail' AND old = forecasts.trail_id)
+   WHERE trail_id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  UPDATE issued_alerts
+     SET trail_id = (SELECT new FROM id_map WHERE kind = 'trail' AND old = issued_alerts.trail_id)
+   WHERE trail_id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  UPDATE hikes
+     SET trail_id = (SELECT new FROM id_map WHERE kind = 'trail' AND old = hikes.trail_id)
+   WHERE trail_id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  DELETE FROM trails WHERE id IN (SELECT old FROM id_map WHERE kind = 'trail');
+
+  -- A report is a child row and nothing declares a foreign key to it, so it
+  -- is renamed where it stands. Its queue entry travels with it, and has to
+  -- move first: afterwards there is nothing left to match it by.
+  INSERT INTO id_map (kind, old, new)
+  SELECT 'report', id, ${UUID} FROM reports WHERE length(id) <> 36;
+
+  UPDATE sync_queue
+     SET entity_id = (SELECT new FROM id_map WHERE kind = 'report' AND old = sync_queue.entity_id)
+   WHERE entity = 'report'
+     AND entity_id IN (SELECT old FROM id_map WHERE kind = 'report');
+
+  UPDATE reports
+     SET id = (SELECT new FROM id_map WHERE kind = 'report' AND old = reports.id)
+   WHERE id IN (SELECT old FROM id_map WHERE kind = 'report');
+
+  DROP TABLE id_map;
+  `,
+
+  // v6 - the trail states say what is true
+  `
+  -- 'pending_review' described a queue a moderator worked. Nobody could
+  -- hold that role, nothing ever left that state, and a review of a track
+  -- on a screen could not establish what mattered about a route anyway.
+  -- The server validates a contribution and publishes or refuses it now.
+  --
+  -- What the device holds under that name is a trail imported from a file,
+  -- which was never sent anywhere and exists only here, so it becomes
+  -- 'local'. 'withdrawn' is the other new state, for a trail that was in
+  -- the shared catalogue and was taken out of it.
+  --
+  -- SQLite cannot alter a CHECK, so the table is rebuilt. The order
+  -- matters: foreign keys are deferred for the rename, the rows are copied,
+  -- and only then do the children find their parent again.
+  PRAGMA foreign_keys = OFF;
+
+  CREATE TABLE trails_v6 (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    distance_m      REAL NOT NULL,
+    elevation_gain_m REAL NOT NULL,
+    effort_index    REAL NOT NULL,
+    difficulty      TEXT NOT NULL CHECK (difficulty IN ('beginner','intermediate','advanced')),
+    status          TEXT NOT NULL DEFAULT 'local'
+                         CHECK (status IN ('published','withdrawn','local')),
+    source          TEXT NOT NULL CHECK (source IN ('preloaded','imported')),
+    downloaded_at   TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT
+  );
+
+  INSERT INTO trails_v6
+    (id, name, description, distance_m, elevation_gain_m, effort_index,
+     difficulty, status, source, downloaded_at, created_at, updated_at)
+  SELECT id, name, description, distance_m, elevation_gain_m, effort_index,
+         difficulty,
+         CASE WHEN status = 'pending_review' THEN 'local' ELSE status END,
+         source, downloaded_at, created_at, updated_at
+    FROM trails;
+
+  DROP TABLE trails;
+  ALTER TABLE trails_v6 RENAME TO trails;
+
+  PRAGMA foreign_keys = ON;
+  `,
+
+  // v7 - a report says what kind of thing it is, in a vocabulary
+  `
+  -- The kind used to be whatever Spanish wording the screen happened to
+  -- show, stored as it read. Two people describing the same obstacle left
+  -- two different kinds, nothing could count them together, and changing a
+  -- label on screen would have changed what the stored rows meant.
+  --
+  -- It is an identifier now, from the catalogue in domain/reports.ts, which
+  -- also carries the severity that decides whether enough reports take a
+  -- trail out of the catalogue. See that file.
+  UPDATE reports SET kind = 'flooded_ford'  WHERE kind = 'Vado crecido';
+  UPDATE reports SET kind = 'lost_markings' WHERE kind = 'Marca borrada';
+  UPDATE reports SET kind = 'path_blocked'  WHERE kind = 'Paso cerrado';
+
+  -- Anything else was free text. It becomes 'other', and the wording moves
+  -- into the comment rather than being thrown away: somebody wrote it about
+  -- a real thing they found on a real path.
+  UPDATE reports
+     SET comment = CASE
+           WHEN comment IS NULL OR comment = '' THEN kind
+           ELSE kind || '. ' || comment
+         END,
+         kind = 'other'
+   WHERE kind NOT IN (
+     'path_blocked', 'flooded_ford', 'lost_markings',
+     'loose_terrain', 'no_water', 'livestock', 'other'
+   );
   `,
 ];

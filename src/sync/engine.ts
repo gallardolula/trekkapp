@@ -28,7 +28,7 @@ import {
   type RemoteReport,
   type RemoteTrail,
 } from '../data/db';
-import { NotAuthenticatedError, requestAuthenticated } from '../data/api';
+import { ApiError, NotAuthenticatedError, requestAuthenticated } from '../data/api';
 import type { Point } from '../domain/types';
 
 export const TRAIL_CURSOR = 'cursor.trails';
@@ -92,15 +92,36 @@ export async function synchronise(): Promise<SyncResult> {
   return result;
 }
 
-/** Sends the queued reports. */
+/**
+ * Sends the queued reports.
+ *
+ * A batch the server refuses to parse is recorded against each report and
+ * then set aside, rather than taken as a failure of the run. The reason is
+ * that such a refusal is permanent: the batch will be refused again
+ * tomorrow, and letting it propagate meant one unsendable report stopped the
+ * catalogue and everybody else's reports from ever coming down. The entries
+ * stay in the queue with the server's reason attached, which is what a later
+ * version of the application needs in order to repair them.
+ */
 async function pushReports(result: SyncResult): Promise<void> {
   const pending = await listPendingReports();
   if (pending.length === 0) return;
 
-  const response = await requestAuthenticated<UploadResult>('/api/reports', {
-    method: 'POST',
-    body: { reports: pending },
-  });
+  let response: UploadResult;
+  try {
+    response = await requestAuthenticated<UploadResult>('/api/reports', {
+      method: 'POST',
+      body: { reports: pending },
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 400) throw error;
+    for (const report of pending) {
+      await recordSyncFailure(report.id, 'invalid_body');
+    }
+    result.reportsRejected = pending.length;
+    result.complete = false;
+    return;
+  }
 
   // Confirmed only on an explicit acceptance. A report the server did not
   // name stays in the queue, which is the whole point of keeping one.

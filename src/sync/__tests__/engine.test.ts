@@ -10,7 +10,16 @@ import { REPORT_CURSOR, TRAIL_CURSOR, synchronise } from '../engine';
 
 jest.mock('../../data/api', () => {
   class NotAuthenticatedError extends Error {}
+  class ApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly code: string,
+    ) {
+      super(`${status} ${code}`);
+    }
+  }
   return {
+    ApiError,
     NotAuthenticatedError,
     requestAuthenticated: jest.fn(),
   };
@@ -257,6 +266,70 @@ describe('failure', () => {
     api.requestAuthenticated.mockRejectedValue(new Error('network'));
     await expect(synchronise()).rejects.toThrow('network');
     expect(db.confirmReportsSent).not.toHaveBeenCalled();
+  });
+});
+
+describe('a batch the server refuses to parse', () => {
+  // This is not a transient failure. The same batch will be refused
+  // tomorrow, so letting it propagate meant one unsendable report stopped
+  // the catalogue and everybody else's reports from ever coming down.
+  const PENDING = [
+    { id: 'r1', trailId: 'trail-1', kind: 'x', createdAt: '2026-11-08T12:00:00.000Z' },
+    { id: 'r2', trailId: 'trail-1', kind: 'y', createdAt: '2026-11-08T12:05:00.000Z' },
+  ];
+
+  function refusedUpload(overrides: Record<string, unknown> = {}) {
+    server(overrides);
+    const answer = api.requestAuthenticated.getMockImplementation()!;
+    api.requestAuthenticated.mockImplementation(
+      (path: string, options?: { method?: string }) => {
+        if (options?.method === 'POST' && path === '/api/reports') {
+          return Promise.reject(new api.ApiError(400, 'invalid_body'));
+        }
+        return answer(path, options);
+      },
+    );
+  }
+
+  beforeEach(() => {
+    db.listPendingReports.mockResolvedValue(PENDING);
+  });
+
+  it('still brings down the catalogue', async () => {
+    refusedUpload({
+      'GET /api/trails': { trails: [TRAIL], deleted: [], cursor: 'c1', complete: true },
+    });
+    db.countTrackPoints.mockResolvedValue(1);
+
+    const result = await synchronise();
+    expect(result.trailsReceived).toBe(1);
+  });
+
+  it('records the reason the server gave against every report in the batch', async () => {
+    refusedUpload();
+    await synchronise();
+    expect(db.recordSyncFailure).toHaveBeenCalledWith('r1', 'invalid_body');
+    expect(db.recordSyncFailure).toHaveBeenCalledWith('r2', 'invalid_body');
+  });
+
+  it('leaves them in the queue rather than confirming them', async () => {
+    refusedUpload();
+    const result = await synchronise();
+    expect(db.confirmReportsSent).not.toHaveBeenCalled();
+    expect(result.reportsSent).toBe(0);
+    expect(result.reportsRejected).toBe(2);
+  });
+
+  it('says the run was incomplete, so the hiker is told something remained', async () => {
+    refusedUpload();
+    expect((await synchronise()).complete).toBe(false);
+  });
+
+  it('still lets any other failure of the upload reach the caller', async () => {
+    // A 500 or a dropped connection is worth retrying, and the hiker needs
+    // to know the run did not happen.
+    api.requestAuthenticated.mockRejectedValue(new api.ApiError(503, 'unavailable'));
+    await expect(synchronise()).rejects.toBeInstanceOf(api.ApiError);
   });
 });
 
