@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * A version 4 UUID built by SQLite itself.
@@ -355,5 +355,30 @@ export const MIGRATIONS: string[] = [
      'path_blocked', 'flooded_ford', 'lost_markings',
      'loose_terrain', 'no_water', 'livestock', 'other'
    );
+  `,
+
+  // v8 - photographs of your own walk
+  `
+  -- Taken during a walk and kept on the phone that took them. They are
+  -- not sent anywhere, not attached to a report and not visible to anyone
+  -- else, which is what makes them cost nothing to moderate: there is no
+  -- audience to protect. What somebody photographs on their own outing is
+  -- theirs the way the track of that outing is.
+  --
+  -- The file itself lives in the application's own directory and only its
+  -- address is stored here. A photograph is a megabyte or two and a
+  -- database row is not where that belongs.
+  CREATE TABLE IF NOT EXISTS hike_photos (
+    id         TEXT PRIMARY KEY,
+    hike_id    TEXT NOT NULL REFERENCES hikes(id) ON DELETE CASCADE,
+    uri        TEXT NOT NULL,
+    -- Where it was taken, when the receiver had answered by then. It is
+    -- what lets a photograph sit on the map at the place it belongs to.
+    lat        REAL,
+    lon        REAL,
+    taken_at   TEXT NOT NULL,
+    note       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_photos_hike ON hike_photos(hike_id);
   `,
 ];

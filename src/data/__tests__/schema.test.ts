@@ -454,3 +454,63 @@ describe('giving reports a vocabulary', () => {
     clean.close();
   });
 });
+
+describe('photographs of a walk', () => {
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    db = migrated();
+    db.exec(`
+      INSERT INTO trails (id, name, distance_m, elevation_gain_m, effort_index,
+                          difficulty, status, source, created_at)
+      VALUES ('7b1f0c2a-0001-4a00-8000-000000000001', 'Quebrada', 9000, 300, 10,
+              'intermediate', 'published', 'preloaded', '2026-11-01T10:00:00.000Z');
+      INSERT INTO hikes (id, trail_id, started_at)
+      VALUES ('cccccccc-0000-4000-8000-000000000003',
+              '7b1f0c2a-0001-4a00-8000-000000000001', '2026-11-09T11:00:00.000Z');
+      INSERT INTO hike_photos (id, hike_id, uri, lat, lon, taken_at)
+      VALUES ('dddddddd-0000-4000-8000-000000000001',
+              'cccccccc-0000-4000-8000-000000000003',
+              'file:///fotos/una.jpg', -31.6, -64.7, '2026-11-09T11:30:00.000Z');
+    `);
+  });
+
+  afterEach(() => db.close());
+
+  const count = (table: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  it('keeps only the address of the file, not the file', () => {
+    const row = db.prepare('SELECT uri FROM hike_photos').get() as { uri: string };
+    expect(row.uri).toBe('file:///fotos/una.jpg');
+  });
+
+  it('goes with the walk when the walk is deleted', () => {
+    // Otherwise deleting an outing leaves its photographs with nothing to
+    // belong to and no screen that would ever show them again.
+    db.exec("DELETE FROM hikes WHERE id = 'cccccccc-0000-4000-8000-000000000003'");
+    expect(count('hike_photos')).toBe(0);
+  });
+
+  it('refuses a photograph of a walk that does not exist', () => {
+    expect(() =>
+      db.exec(`
+        INSERT INTO hike_photos (id, hike_id, uri, taken_at)
+        VALUES ('eeeeeeee-0000-4000-8000-000000000001', 'no-existe',
+                'file:///x.jpg', '2026-11-09T12:00:00.000Z')
+      `),
+    ).toThrow();
+  });
+
+  it('accepts one taken where the receiver had not answered', () => {
+    // Under trees and in a valley there is no fix, and that is no reason
+    // to lose the photograph.
+    db.exec(`
+      INSERT INTO hike_photos (id, hike_id, uri, taken_at)
+      VALUES ('eeeeeeee-0000-4000-8000-000000000002',
+              'cccccccc-0000-4000-8000-000000000003', 'file:///dos.jpg',
+              '2026-11-09T12:00:00.000Z')
+    `);
+    expect(count('hike_photos')).toBe(2);
+  });
+});

@@ -11,9 +11,10 @@
  */
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { deleteHike, listHikes, type HikeSummary } from '../../src/data/db';
+import { countPhotos, deleteHike, listHikes, listPhotos, photoFilesOf, type HikePhoto, type HikeSummary } from '../../src/data/db';
+import { deleteFile } from '../../src/data/photos';
 import { prepareStorage } from '../../src/startup/storage';
 import { StateView } from '../../src/ui/StateView';
 import { Palette, sp, useTheme } from '../../src/ui/theme';
@@ -34,6 +35,13 @@ export default function Hikes() {
   const { c } = useTheme();
   const s = useMemo(() => styles(c), [c]);
   const [hikes, setHikes] = useState<HikeSummary[] | null>(null);
+  // How many photographs each walk holds, and the ones of the walk being
+  // looked at. Counted for the list and loaded only when opened, because a
+  // gallery of every outing at once is a lot of files for a screen that
+  // mostly shows numbers.
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [open, setOpen] = useState<string | null>(null);
+  const [gallery, setGallery] = useState<HikePhoto[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -41,7 +49,9 @@ export default function Hikes() {
       (async () => {
         await prepareStorage();
         const list = await listHikes();
-        if (active) setHikes(list);
+        if (!active) return;
+        setHikes(list);
+        setCounts(await countPhotos(list.map((h) => h.id)));
       })();
       return () => {
         active = false;
@@ -52,15 +62,23 @@ export default function Hikes() {
   function askToRemove(h: HikeSummary) {
     Alert.alert(
       'Eliminar del historial',
-      `Se va a borrar el recorrido de ${h.trailName} y las ${h.points} lecturas que guardó. No se puede deshacer.`,
+      `Se va a borrar el recorrido de ${h.trailName}, las ${h.points} lecturas que guardó` +
+        `${(counts[h.id] ?? 0) > 0 ? ` y sus ${counts[h.id]} foto${counts[h.id] === 1 ? '' : 's'}` : ''}. No se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
           onPress: async () => {
+            // The files go too. The rows follow the walk by themselves,
+            // through the foreign key, but nothing would ever delete the
+            // images and nothing would ever show them again either.
+            for (const uri of await photoFilesOf(h.id)) deleteFile(uri);
             await deleteHike(h.id);
-            setHikes(await listHikes());
+            const list = await listHikes();
+            setHikes(list);
+            setCounts(await countPhotos(list.map((x) => x.id)));
+            if (open === h.id) setOpen(null);
           },
         },
       ],
@@ -127,6 +145,31 @@ export default function Hikes() {
                 ))}
               </View>
 
+              {(counts[h.id] ?? 0) > 0 && (
+                <Pressable
+                  onPress={async () => {
+                    const next = open === h.id ? null : h.id;
+                    setOpen(next);
+                    setGallery(next ? await listPhotos(h.id) : []);
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={s.photosToggle}>
+                    {open === h.id
+                      ? 'Ocultar las fotos'
+                      : `Ver ${counts[h.id]} foto${counts[h.id] === 1 ? '' : 's'}`}
+                  </Text>
+                </Pressable>
+              )}
+
+              {open === h.id && gallery.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.gallery}>
+                  {gallery.map((photo) => (
+                    <Image key={photo.id} source={{ uri: photo.uri }} style={s.photo} />
+                  ))}
+                </ScrollView>
+              )}
+
               <Pressable onPress={() => askToRemove(h)} hitSlop={8}>
                 <Text style={s.remove}>Eliminar del historial</Text>
               </Pressable>
@@ -183,6 +226,15 @@ const styles = (c: Palette) =>
     figureValue: { color: c.text, fontSize: 16, fontWeight: '700' },
     figureLabel: { color: c.mutedText, fontSize: 11.5, marginTop: 1 },
 
+    photosToggle: { color: c.primary, fontSize: 12.5, fontWeight: '700', marginTop: sp.lg },
+    gallery: { marginTop: sp.sm },
+    photo: {
+      width: 132,
+      height: 132,
+      borderRadius: 12,
+      marginRight: sp.sm,
+      backgroundColor: c.canvas,
+    },
     remove: { color: c.danger, fontSize: 12.5, fontWeight: '600', marginTop: sp.lg },
 
     empty: {

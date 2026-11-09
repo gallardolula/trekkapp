@@ -59,6 +59,7 @@ import {
   Point,
 } from '../../src/domain/types';
 import { prepareStorage } from '../../src/startup/storage';
+import { cameraAvailable, capturePhoto, CameraRefused } from '../../src/data/photos';
 import { setRecording } from '../../src/sync/auto';
 import { ReportSheet, type ReportPlace } from '../../src/ui/ReportSheet';
 import { TrackMap, type MapReport } from '../../src/ui/TrackMap';
@@ -114,6 +115,7 @@ export default function Hike() {
   const [place, setPlace] = useState<ReportPlace>({ kind: 'here' });
   const [pick, setPick] = useState<Point | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [photos, setPhotos] = useState(0);
 
   const state = useRef<DeviationState>(INITIAL_DEVIATION_STATE);
 
@@ -407,6 +409,27 @@ export default function Hike() {
     setSheetOpen(true);
   }
 
+  /** A photograph of this walk, kept on the phone and nowhere else. */
+  async function takePhoto() {
+    const current = hikeId.current;
+    if (!current) return;
+    try {
+      const photo = await capturePhoto(current, position ?? here);
+      if (photo) {
+        setPhotos((n) => n + 1);
+        setSaved('Foto guardada con este recorrido. Queda en tu teléfono.');
+        setTimeout(() => setSaved(null), 4000);
+      }
+    } catch (error) {
+      Alert.alert(
+        'No pudimos usar la cámara',
+        error instanceof CameraRefused
+          ? 'Hace falta permiso de cámara. Podés activarlo desde los ajustes del teléfono.'
+          : 'Probá de nuevo en un momento.',
+      );
+    }
+  }
+
   async function saveTheReport(draft: { kindId: string; comment: string }) {
     // Where it goes, in order of what the hiker chose. A report marked on
     // the map is anchored to the path; one left where they stand carries
@@ -546,7 +569,7 @@ export default function Hike() {
           <View style={s.metrics}>
             {[
               [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
-              [`${(walked / 1000).toFixed(2)} km`, 'caminados', false],
+              [`${(walked / 1000).toFixed(2)} km`, photos > 0 ? `caminados · ${photos} 📷` : 'caminados', false],
               [
                 `${Math.round(((progress + 1) / track.length) * 100)} %`,
                 `de ${(coveredM / 1000).toFixed(1)} km`,
@@ -582,6 +605,14 @@ export default function Hike() {
             <Pressable style={s.report} onPress={() => setSheetOpen(true)}>
               <Text style={s.reportText}>Avisar</Text>
             </Pressable>
+            {/* Only while a walk is being recorded, because a photograph
+                belongs to an outing and there is no outing yet. It stays
+                on this phone and goes nowhere. */}
+            {navigating && cameraAvailable() && (
+              <Pressable style={s.report} onPress={() => void takePhoto()}>
+                <Text style={s.reportText}>Foto</Text>
+              </Pressable>
+            )}
           </View>
 
           <Pressable onPress={() => setDetail((d) => !d)} hitSlop={8}>
@@ -619,6 +650,12 @@ export default function Hike() {
                 <Text style={s.permission}>
                   Sin permiso de ubicación no se puede usar el receptor. Activalo desde los
                   ajustes del teléfono.
+                </Text>
+              )}
+              {!cameraAvailable() && (
+                <Text style={s.detailText}>
+                  Esta compilación no incluye la cámara, así que no se pueden sacar fotos del
+                  recorrido. Todo lo demás funciona igual.
                 </Text>
               )}
               <Text style={s.detailText}>

@@ -912,3 +912,127 @@ export async function readHikePoints(hikeId: string): Promise<Point[]> {
     time: r.time,
   }));
 }
+
+/**
+ * Removes preloaded trails the application no longer ships.
+ *
+ * Seeding alone only ever adds, so a device that has been through several
+ * versions accumulates every catalogue it was ever installed with. Only
+ * preloaded rows are touched: a trail somebody imported is theirs, and one
+ * the server sent arrives again on the next delta.
+ */
+export async function forgetPreloadedExcept(keep: string[]): Promise<void> {
+  const db = await openDatabase();
+  if (keep.length === 0) return;
+  const marks = keep.map(() => '?').join(',');
+  await db.runAsync(
+    `DELETE FROM trails WHERE source = 'preloaded' AND id NOT IN (${marks})`,
+    ...keep,
+  );
+}
+
+// ----------------------------------------------------------------- photos --
+
+export interface HikePhoto {
+  id: string;
+  hikeId: string;
+  uri: string;
+  lat?: number;
+  lon?: number;
+  takenAt: string;
+  note?: string;
+}
+
+/**
+ * Records a photograph taken during a walk.
+ *
+ * The file has already been copied into the application's own directory
+ * by the caller; what is stored here is where it went. A photograph is a
+ * megabyte or two and a database row is not where that belongs.
+ */
+export async function savePhoto(photo: {
+  hikeId: string;
+  uri: string;
+  lat?: number;
+  lon?: number;
+  note?: string;
+}): Promise<string> {
+  const db = await openDatabase();
+  const id = await newId();
+  await db.runAsync(
+    `INSERT INTO hike_photos (id, hike_id, uri, lat, lon, taken_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    photo.hikeId,
+    photo.uri,
+    photo.lat ?? null,
+    photo.lon ?? null,
+    now(),
+    photo.note ?? null,
+  );
+  return id;
+}
+
+export async function listPhotos(hikeId: string): Promise<HikePhoto[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{
+    id: string;
+    hike_id: string;
+    uri: string;
+    lat: number | null;
+    lon: number | null;
+    taken_at: string;
+    note: string | null;
+  }>('SELECT * FROM hike_photos WHERE hike_id = ? ORDER BY taken_at', hikeId);
+
+  return rows.map((r) => ({
+    id: r.id,
+    hikeId: r.hike_id,
+    uri: r.uri,
+    takenAt: r.taken_at,
+    ...(r.lat !== null ? { lat: r.lat } : {}),
+    ...(r.lon !== null ? { lon: r.lon } : {}),
+    ...(r.note !== null ? { note: r.note } : {}),
+  }));
+}
+
+/** How many photographs each of these walks holds, for the history list. */
+export async function countPhotos(hikeIds: string[]): Promise<Record<string, number>> {
+  if (hikeIds.length === 0) return {};
+  const db = await openDatabase();
+  const marks = hikeIds.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{ hike_id: string; n: number }>(
+    `SELECT hike_id, COUNT(*) AS n FROM hike_photos
+      WHERE hike_id IN (${marks}) GROUP BY hike_id`,
+    ...hikeIds,
+  );
+  return Object.fromEntries(rows.map((r) => [r.hike_id, r.n]));
+}
+
+/**
+ * Forgets a photograph, returning the file so the caller can delete it.
+ *
+ * The row and the file are two things and only one of them is in a
+ * transaction. The row goes first: a file with no row is wasted space, and
+ * a row with no file is a gallery with a hole in it.
+ */
+export async function forgetPhoto(photoId: string): Promise<string | null> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ uri: string }>(
+    'SELECT uri FROM hike_photos WHERE id = ?',
+    photoId,
+  );
+  if (!row) return null;
+  await db.runAsync('DELETE FROM hike_photos WHERE id = ?', photoId);
+  return row.uri;
+}
+
+/** The files of a walk, so they can be deleted along with it. */
+export async function photoFilesOf(hikeId: string): Promise<string[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{ uri: string }>(
+    'SELECT uri FROM hike_photos WHERE hike_id = ?',
+    hikeId,
+  );
+  return rows.map((r) => r.uri);
+}
