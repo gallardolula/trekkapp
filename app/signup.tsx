@@ -1,13 +1,22 @@
 /** Hiker sign up.
  *
- *  In the final design the account lives on the server, so it can be
- *  recovered from another device with email and password. Server side
- *  registration and login belong to the same component as synchronisation,
- *  still pending, so here the local profile the rest of the application needs
- *  is created.
+ *  The account lives on the server, which is what lets it be recovered from
+ *  another device with an address and a password. This screen and signing in
+ *  are the only two that need coverage; everything the walk itself needs
+ *  runs on the device afterwards.
+ *
+ *  Asked one question at a time, which is what every application of this
+ *  kind does and for a good reason. A single form with four fields and five
+ *  password rules reads as an obstacle; four short questions with a bar
+ *  showing the end read as a conversation. Nothing is sent until the last
+ *  one, so the whole thing is still a single request.
+ *
+ *  The declared level is asked here rather than later because it decides
+ *  when the application warns somebody before downloading a trail beyond
+ *  what they said they walk.
  */
-import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { Link, useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,14 +24,15 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
 import { requestPublic } from '../src/data/api';
-import { saveProfile, saveUserId } from '../src/data/db';
+import { adoptAccount, readProfile } from '../src/data/db';
 import { saveTokens } from '../src/data/session';
 import { Level } from '../src/domain/types';
+import { Button, Field, Notice, Question, StepBar } from '../src/ui/forms';
+import { confirmHandover, HANDOVER_WARNING, reportHandover } from '../src/ui/handover';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
 const LEVELS: { level: Level; detail: string }[] = [
@@ -52,25 +62,58 @@ const SERVER_ERRORS: Record<string, string> = {
   invalid_body: 'Revisá los datos ingresados.',
 };
 
+const STEPS = 4;
+
 export default function SignUp() {
   const router = useRouter();
   const { c, refresh } = useTheme();
   const s = useMemo(() => styles(c), [c]);
 
-  const [name, setName] = useState('');
+  const [step, setStep] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [level, setLevel] = useState<Level | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [working, setWorking] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
+  // A new account on a phone that already holds one means the previous
+  // hiker's data is about to go, which they have to be told before it does.
+  const [occupied, setOccupied] = useState(false);
+  useEffect(() => {
+    let active = true;
+    readProfile().then((p) => {
+      if (active) setOccupied(p !== null);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const missing = PASSWORD_RULES.filter((r) => !r.test(password)).map((r) => r.label);
-  const nameError = name.trim().length < 2 ? 'Ingresá tu nombre.' : null;
   const emailError = !validEmail(email) ? 'Ingresá un correo válido.' : null;
   const passwordError = missing.length > 0 ? `Falta ${missing.join(', ')}.` : null;
-  const levelError = level === null ? 'Elegí tu nivel de experiencia.' : null;
-  const valid = !nameError && !emailError && !passwordError && !levelError;
+  const nameError = name.trim().length < 2 ? 'Ingresá tu nombre.' : null;
+
+  const levelError = level === null ? 'Elegí el tipo de salidas que hacés.' : null;
+  const stepError = [emailError, passwordError, nameError, levelError][step];
+  const canAdvance = !stepError;
+
+  function next() {
+    setAttempted(true);
+    if (!canAdvance) return;
+    setAttempted(false);
+    if (step < STEPS - 1) setStep((n) => n + 1);
+    else void createAccount();
+  }
+
+  function back() {
+    setServerError(null);
+    setAttempted(false);
+    if (step === 0) router.back();
+    else setStep((n) => n - 1);
+  }
 
   /**
    * Creates the account against the server and then stores it locally.
@@ -81,9 +124,9 @@ export default function SignUp() {
    * recovered later from another device.
    */
   async function createAccount() {
-    setAttempted(true);
     setServerError(null);
-    if (!valid || !level || working) return;
+    if (!level || working) return;
+    if (occupied && !(await confirmHandover())) return;
 
     setWorking(true);
     try {
@@ -100,12 +143,23 @@ export default function SignUp() {
         accessToken: created.accessToken,
         refreshToken: created.refreshToken,
       });
-      await saveProfile({ name: name.trim(), email: email.trim().toLowerCase(), level });
-      await saveUserId(created.user.id);
+      const { replaced } = await adoptAccount({
+        userId: created.user.id,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        level,
+      });
+      if (replaced && !occupied) reportHandover();
+
       refresh();
-      router.replace('/');
+      router.replace('/home');
     } catch (error) {
       const code = (error as { code?: string }).code;
+      // Whatever went wrong belongs to a step, so the person is taken back
+      // to the one that can fix it instead of reading an error about a
+      // field they can no longer see.
+      if (code === 'email_taken') setStep(0);
+      if (code === 'weak_password') setStep(1);
       setServerError(
         code && SERVER_ERRORS[code]
           ? SERVER_ERRORS[code]
@@ -117,86 +171,141 @@ export default function SignUp() {
   }
 
   const levelColour = difficultyColour(c);
+  const last = step === STEPS - 1;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Text style={s.title}>Creá tu cuenta</Text>
-        <Text style={s.intro}>
-          Tu nivel de experiencia determina cuándo la aplicación te advierte antes de descargar un
-          sendero.
-        </Text>
+        <StepBar step={step} of={STEPS} />
 
-        <Text style={s.label}>Nombre</Text>
-        <TextInput
-          style={s.field}
-          value={name}
-          onChangeText={setName}
-          placeholder="Cómo querés que te llamemos"
-          placeholderTextColor={c.mutedText}
-          autoCapitalize="words"
-        />
-        {attempted && nameError && <Text style={s.error}>{nameError}</Text>}
+        {step === 0 && (
+          <>
+            <Question
+              title="Empecemos por tu correo"
+              detail="Con él vas a poder recuperar la cuenta desde otro teléfono."
+            />
+            <Field
+              label="Correo electrónico"
+              value={email}
+              onChangeText={setEmail}
+              error={attempted ? emailError : null}
+              placeholder="nombre@correo.com"
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              autoFocus
+              clearable
+              onSubmitEditing={next}
+              returnKeyType="next"
+            />
+          </>
+        )}
 
-        <Text style={s.label}>Correo electrónico</Text>
-        <TextInput
-          style={s.field}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="nombre@correo.com"
-          placeholderTextColor={c.mutedText}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        {attempted && emailError && <Text style={s.error}>{emailError}</Text>}
+        {step === 1 && (
+          <>
+            <Question title="Elegí una contraseña" />
+            <Field
+              label="Contraseña"
+              value={password}
+              onChangeText={setPassword}
+              error={attempted ? passwordError : null}
+              placeholder="Al menos ocho caracteres"
+              autoCapitalize="none"
+              autoComplete="new-password"
+              secret
+              autoFocus
+              onSubmitEditing={next}
+              returnKeyType="next"
+            />
+            <View style={s.rules}>
+              {PASSWORD_RULES.map((r) => {
+                const met = r.test(password);
+                return (
+                  <Text key={r.label} style={[s.rule, met && { color: c.success }]}>
+                    {met ? '✓' : '·'} {r.label}
+                  </Text>
+                );
+              })}
+            </View>
+          </>
+        )}
 
-        <Text style={s.label}>Contraseña</Text>
-        <TextInput
-          style={s.field}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Al menos ocho caracteres"
-          placeholderTextColor={c.mutedText}
-          autoCapitalize="none"
-          autoComplete="new-password"
-          secureTextEntry
-        />
-        {attempted && passwordError && <Text style={s.error}>{passwordError}</Text>}
+        {step === 2 && (
+          <>
+            <Question title="¿Cómo te llamamos?" detail="Es el nombre que vas a ver al entrar." />
+            <Field
+              label="Nombre"
+              value={name}
+              onChangeText={setName}
+              error={attempted ? nameError : null}
+              placeholder="Tu nombre"
+              autoCapitalize="words"
+              autoFocus
+              clearable
+              onSubmitEditing={next}
+              returnKeyType="next"
+            />
+          </>
+        )}
 
-        <Text style={s.label}>Nivel de experiencia</Text>
-        {LEVELS.map((o) => {
-          const chosen = level === o.level;
-          return (
-            <Pressable
-              key={o.level}
-              onPress={() => setLevel(o.level)}
-              style={[s.option, chosen && { borderColor: levelColour[o.level], borderWidth: 2 }]}
-            >
-              <View style={s.row}>
-                <View style={[s.dot, { backgroundColor: levelColour[o.level] }]} />
-                <Text style={s.optionTitle}>{LEVEL_LABEL[o.level]}</Text>
-              </View>
-              <Text style={s.optionDetail}>{o.detail}</Text>
-            </Pressable>
-          );
-        })}
-        {attempted && levelError && <Text style={s.error}>{levelError}</Text>}
+        {step === 3 && (
+          <>
+            <Question
+              title="¿Qué tipo de salidas hacés?"
+              detail="Determina cuándo la aplicación te advierte antes de descargar un sendero más exigente de lo que caminás."
+            />
+            {LEVELS.map((o) => {
+              const chosen = level === o.level;
+              return (
+                <Pressable
+                  key={o.level}
+                  onPress={() => setLevel(o.level)}
+                  style={[
+                    s.option,
+                    chosen && { borderColor: levelColour[o.level], borderWidth: 2 },
+                  ]}
+                >
+                  <View style={s.row}>
+                    <View style={[s.dot, { backgroundColor: levelColour[o.level] }]} />
+                    <Text style={s.optionTitle}>{LEVEL_LABEL[o.level]}</Text>
+                  </View>
+                  <Text style={s.optionDetail}>{o.detail}</Text>
+                </Pressable>
+              );
+            })}
+            {attempted && levelError && <Text style={s.error}>{levelError}</Text>}
+          </>
+        )}
 
-        {serverError && <Text style={s.serverError}>{serverError}</Text>}
+        {occupied && last && <Notice text={HANDOVER_WARNING} tone="warning" />}
+        {serverError && <Notice text={serverError} tone="danger" />}
 
-        <Pressable
-          style={[s.button, (!valid || working) && s.buttonOff]}
-          onPress={createAccount}
-          disabled={working}
-        >
-          <Text style={s.buttonText}>{working ? 'Creando cuenta…' : 'Crear cuenta'}</Text>
-        </Pressable>
+        <View style={s.actions}>
+          <Button
+            label={last ? 'Crear cuenta' : 'Continuar'}
+            onPress={next}
+            busy={working}
+            disabled={!canAdvance}
+          />
+          <Button label="Volver" variant="quiet" onPress={back} />
+        </View>
 
-        <Text style={s.note}>
-          La cuenta se registra en el servidor, así que este paso necesita conexión por única vez.
-          Eso es lo que te permite recuperarla desde otro dispositivo. Después el recorrido completo
-          funciona sin señal.
-        </Text>
+        <View style={s.alternative}>
+          <Text style={s.alternativeText}>¿Ya tenés cuenta?</Text>
+          <Link href="/signin" replace style={s.link}>
+            Iniciá sesión
+          </Link>
+        </View>
+
+        {last && (
+          <Text style={s.note}>
+            La cuenta se registra en el servidor, así que este paso necesita conexión por única
+            vez. Eso es lo que te permite recuperarla desde otro dispositivo.
+          </Text>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -204,50 +313,37 @@ export default function SignUp() {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
-    title: { fontSize: 22, fontWeight: '700', color: c.text },
-    intro: { color: c.mutedText, fontSize: 13, lineHeight: 19, marginTop: sp.sm, marginBottom: sp.lg },
-    label: { color: c.text, fontWeight: '700', fontSize: 13, marginBottom: sp.sm, marginTop: sp.md },
-    field: {
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      paddingHorizontal: sp.md,
-      paddingVertical: 12,
-      color: c.text,
-      fontSize: 15,
-    },
-      error: { color: c.danger, fontSize: 12, marginTop: sp.xs },
-    serverError: {
-      color: c.danger,
-      backgroundColor: c.dangerSoft,
-      borderRadius: 8,
-      padding: sp.md,
-      marginTop: sp.md,
-      fontSize: 13,
-      lineHeight: 19,
-    },
+    content: { padding: sp.lg, paddingTop: sp.lg, paddingBottom: sp.xl * 2 },
+    rules: { gap: 2, marginTop: sp.xs, marginLeft: sp.xs },
+    rule: { color: c.mutedText, fontSize: 12.5, lineHeight: 18 },
+    error: { color: c.danger, fontSize: 12.5, marginTop: sp.xs },
     option: {
       backgroundColor: c.surface,
       borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
+      borderWidth: 1.5,
+      borderRadius: 14,
+      padding: sp.lg,
       marginBottom: sp.sm,
     },
     row: { flexDirection: 'row', alignItems: 'center', gap: sp.sm },
     dot: { width: 10, height: 10, borderRadius: 5 },
-    optionTitle: { fontWeight: '700', color: c.text, fontSize: 14, textTransform: 'capitalize' },
-    optionDetail: { color: c.mutedText, fontSize: 12, marginTop: sp.xs, lineHeight: 17 },
-    button: {
-      backgroundColor: c.primary,
-      borderRadius: 10,
-      paddingVertical: 15,
+    optionTitle: { fontWeight: '700', color: c.text, fontSize: 15, textTransform: 'capitalize' },
+    optionDetail: { color: c.mutedText, fontSize: 13, marginTop: sp.xs, lineHeight: 19 },
+    actions: { gap: sp.xs, marginTop: sp.lg },
+    alternative: {
+      flexDirection: 'row',
+      justifyContent: 'center',
       alignItems: 'center',
-      marginTop: sp.lg,
+      gap: sp.xs,
+      marginTop: sp.md,
     },
-    buttonOff: { opacity: 0.5 },
-    buttonText: { color: c.onPrimary, fontWeight: '700', fontSize: 15 },
-    note: { color: c.mutedText, fontSize: 11, lineHeight: 16, marginTop: sp.lg, textAlign: 'center' },
+    alternativeText: { color: c.mutedText, fontSize: 13 },
+    link: { color: c.primary, fontSize: 13, fontWeight: '700' },
+    note: {
+      color: c.mutedText,
+      fontSize: 11.5,
+      lineHeight: 16,
+      marginTop: sp.lg,
+      textAlign: 'center',
+    },
   });

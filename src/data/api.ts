@@ -133,12 +133,53 @@ async function renew(tokens: Tokens): Promise<Tokens | null> {
   }
 }
 
-/** True when the server answers, used to decide whether to offer a sync. */
-export async function serverReachable(): Promise<boolean> {
+/**
+ * Whether the server answers right now.
+ *
+ * Reachability of this server and not the state of the radio, which is the
+ * question that matters and the one the platform cannot answer. A phone on
+ * a café's captive portal has a network and no server; a phone on a
+ * mountain has neither. Both are the same answer here, and both are the
+ * same decision for the caller.
+ *
+ * Short on purpose. This runs when the application comes to the front and
+ * nobody is waiting for it, so a server that is slow to answer is treated
+ * as a server that is not there, and the sync simply happens next time.
+ */
+export async function serverReachable(timeoutMs = 2500): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await send('/health');
+    const response = await fetch(`${resolveBaseUrl()}/health`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * Ends the session on this device.
+ *
+ * The server is told so the refresh token stops being usable from anywhere,
+ * but that is a courtesy and not a condition: somebody closing their session
+ * in the mountains has no connection, and the one thing that must happen is
+ * that the tokens leave this phone. So the local part runs whether or not
+ * the request got through.
+ *
+ * What the hiker recorded stays on the device. Signing back in with the same
+ * account finds it untouched, and signing in with a different one is what
+ * clears it, after asking.
+ */
+export async function endSession(): Promise<{ serverNotified: boolean }> {
+  let serverNotified = false;
+  try {
+    await requestAuthenticated('/api/auth/logout', { method: 'POST' });
+    serverNotified = true;
+  } catch {
+    serverNotified = false;
+  }
+  await clearTokens();
+  return { serverNotified };
 }
