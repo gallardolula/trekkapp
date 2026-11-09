@@ -3,3 +3,7 @@
 data/
 out/
 *.jar
+
+# Terrain tiles kept between contour runs, so a second run does not
+# download the same unchanged ground again.
+cache/
