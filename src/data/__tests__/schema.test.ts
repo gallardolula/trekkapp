@@ -9,7 +9,7 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import { isUuid } from '../../domain/identity';
-import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP, SCHEMA_VERSION } from '../schema';
+import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP, retargetTrail, SCHEMA_VERSION } from '../schema';
 
 /** Opens a database migrated up to `upTo`, counted as the application does. */
 function migrated(upTo: number = MIGRATIONS.length): DatabaseSync {
@@ -512,5 +512,93 @@ describe('photographs of a walk', () => {
               '2026-11-09T12:00:00.000Z')
     `);
     expect(count('hike_photos')).toBe(2);
+  });
+});
+
+describe('moving a trail onto the identifier the server assigned', () => {
+  const LOCAL = 'aaaaaaaa-0000-4000-8000-00000000000a';
+  const SERVER = 'bbbbbbbb-0000-4000-8000-00000000000b';
+
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    db = migrated();
+    db.exec(`
+      INSERT INTO trails (id, name, distance_m, elevation_gain_m, effort_index,
+                          difficulty, status, source, downloaded_at, created_at)
+      VALUES ('${LOCAL}', 'Filo de prueba', 2060, 156, 2.3, 'beginner',
+              'local', 'imported', '2026-11-09T12:00:00.000Z',
+              '2026-11-09T10:00:00.000Z');
+
+      INSERT INTO track_points (trail_id, position, lat, lon)
+      VALUES ('${LOCAL}', 0, -31.5, -64.6), ('${LOCAL}', 1, -31.51, -64.61);
+
+      INSERT INTO reports (id, trail_id, kind, created_at)
+      VALUES ('cccccccc-0000-4000-8000-00000000000c', '${LOCAL}', 'no_water',
+              '2026-11-09T11:00:00.000Z');
+
+      INSERT INTO forecasts (trail_id, date, precipitation_mm, wind_kmh,
+                             min_temp_c, max_temp_c, obtained_at)
+      VALUES ('${LOCAL}', '2026-11-10', 0, 12, 8, 21, '2026-11-09T10:10:00.000Z');
+
+      INSERT INTO issued_alerts (trail_id, kind, issued_at)
+      VALUES ('${LOCAL}', 'level', '2026-11-09T11:20:00.000Z');
+
+      INSERT INTO hikes (id, trail_id, started_at)
+      VALUES ('dddddddd-0000-4000-8000-00000000000d', '${LOCAL}',
+              '2026-11-09T11:00:00.000Z');
+    `);
+
+    for (const [sql, params] of retargetTrail(LOCAL, SERVER)) {
+      db.prepare(sql).run(...(params as never[]));
+    }
+  });
+
+  afterEach(() => db.close());
+
+  const one = (sql: string, ...p: string[]) => db.prepare(sql).get(...(p as never[]));
+  const count = (table: string, id: string) =>
+    (one(`SELECT COUNT(*) AS n FROM ${table} WHERE trail_id = ?`, id) as { n: number }).n;
+
+  it('leaves exactly one trail, under the server identifier', () => {
+    const rows = db.prepare('SELECT id FROM trails').all() as { id: string }[];
+    expect(rows).toEqual([{ id: SERVER }]);
+  });
+
+  it('publishes it, because the server accepted it', () => {
+    expect((one('SELECT status FROM trails WHERE id = ?', SERVER) as { status: string }).status)
+      .toBe('published');
+  });
+
+  it('keeps what the hiker had done to it', () => {
+    const row = one('SELECT name, downloaded_at FROM trails WHERE id = ?', SERVER) as {
+      name: string;
+      downloaded_at: string | null;
+    };
+    expect(row.name).toBe('Filo de prueba');
+    expect(row.downloaded_at).toBe('2026-11-09T12:00:00.000Z');
+  });
+
+  it('moves every child onto the new identifier', () => {
+    expect(count('track_points', SERVER)).toBe(2);
+    expect(count('reports', SERVER)).toBe(1);
+    expect(count('forecasts', SERVER)).toBe(1);
+    expect(count('issued_alerts', SERVER)).toBe(1);
+    expect(count('hikes', SERVER)).toBe(1);
+  });
+
+  it('leaves nothing behind on the old one', () => {
+    for (const table of ['track_points', 'reports', 'forecasts', 'issued_alerts', 'hikes']) {
+      expect(count(table, LOCAL)).toBe(0);
+    }
+  });
+
+  it('leaves nothing pointing at a trail that is gone', () => {
+    // Deleting the original cascades, so a child the sequence forgot to
+    // move would be deleted rather than orphaned, and silently.
+    const stranded = one(
+      `SELECT COUNT(*) AS n FROM track_points WHERE trail_id NOT IN (SELECT id FROM trails)`,
+    ) as { n: number };
+    expect(stranded.n).toBe(0);
   });
 });

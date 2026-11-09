@@ -14,6 +14,7 @@ jest.mock('../../data/api', () => {
     constructor(
       readonly status: number,
       readonly code: string,
+      readonly detail?: unknown,
     ) {
       super(`${status} ${code}`);
     }
@@ -37,6 +38,9 @@ jest.mock('../../data/db', () => ({
   saveRemoteReport: jest.fn(),
   trailExists: jest.fn(),
   countPendingSync: jest.fn(),
+  listPendingTrails: jest.fn(),
+  adoptServerTrail: jest.fn(),
+  stopContributing: jest.fn(),
 }));
 
 const api = jest.requireMock('../../data/api');
@@ -62,6 +66,7 @@ const REPORT = {
 function server(overrides: Record<string, unknown> = {}) {
   const answers: Record<string, unknown> = {
     'POST /api/reports': { accepted: [], rejected: [] },
+    'POST /api/trails': { id: 'del-servidor' },
     'GET /api/trails': { trails: [], deleted: [], cursor: null, complete: true },
     'GET /api/reports': { reports: [], cursor: null, complete: true },
     ...overrides,
@@ -79,6 +84,7 @@ function server(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   db.listPendingReports.mockResolvedValue([]);
+  db.listPendingTrails.mockResolvedValue([]);
   db.readSyncState.mockResolvedValue(null);
   db.countTrackPoints.mockResolvedValue(0);
   db.trailExists.mockResolvedValue(true);
@@ -336,5 +342,108 @@ describe('a batch the server refuses to parse', () => {
 describe('exported error type', () => {
   it('is the one the api module defines', () => {
     expect(NotAuthenticatedError).toBe(api.NotAuthenticatedError);
+  });
+});
+
+describe('contributing a trail somebody imported', () => {
+  const TRACK_POINTS = [
+    { lat: -31.65, lon: -64.68, ele: 2100 },
+    { lat: -31.651, lon: -64.681, ele: 2110 },
+    { lat: -31.652, lon: -64.682, ele: 2125 },
+  ];
+  const LOCAL = 'local-1';
+
+  const pending = (points = TRACK_POINTS) => [
+    { id: LOCAL, name: 'Filo de prueba', description: 'Importado', points },
+  ];
+
+  /** Makes the contribution endpoint answer with a failure. */
+  function refusedWith(status: number, detail: Record<string, unknown>) {
+    const answer = api.requestAuthenticated.getMockImplementation()!;
+    api.requestAuthenticated.mockImplementation((path: string, options?: { method?: string }) => {
+      if (options?.method === 'POST' && path === '/api/trails') {
+        return Promise.reject(new api.ApiError(status, 'invalid_track', detail));
+      }
+      return answer(path, options);
+    });
+  }
+
+  it('sends it before the reports, so a report about it is not orphaned', async () => {
+    // A report naming a trail the server does not know is refused, so the
+    // order is what makes contributing and reporting work in one run.
+    db.listPendingTrails.mockResolvedValue(pending());
+    db.listPendingReports.mockResolvedValue([
+      { id: 'r1', trailId: LOCAL, kind: 'no_water', createdAt: '2026-11-09T12:00:00.000Z' },
+    ]);
+
+    await synchronise();
+
+    const posts = api.requestAuthenticated.mock.calls
+      .filter((c: [string, { method?: string }?]) => c[1]?.method === 'POST')
+      .map((c: [string]) => c[0]);
+    expect(posts).toEqual(['/api/trails', '/api/reports']);
+  });
+
+  it('moves the trail onto the identifier the server assigned', async () => {
+    // The server generates its own, so without this the same path exists
+    // twice and every report about it names one the server never heard of.
+    db.listPendingTrails.mockResolvedValue(pending());
+    const result = await synchronise();
+    expect(db.adoptServerTrail).toHaveBeenCalledWith(LOCAL, 'del-servidor');
+    expect(result.trailsSent).toBe(1);
+  });
+
+  it('adopts the published trail when the server says it is a duplicate', async () => {
+    // Not a refusal: somebody imported a recording of a path the catalogue
+    // already holds, and the local copy becomes that one.
+    refusedWith(409, { reason: 'duplicate_of_existing', trailId: 'ya-publicado' });
+    db.listPendingTrails.mockResolvedValue(pending());
+
+    const result = await synchronise();
+    expect(db.adoptServerTrail).toHaveBeenCalledWith(LOCAL, 'ya-publicado');
+    expect(result.trailsSent).toBe(1);
+    expect(db.stopContributing).not.toHaveBeenCalled();
+  });
+
+  it('gives up on a track the server will never accept, keeping it local', async () => {
+    refusedWith(422, { reason: 'gap_too_large' });
+    db.listPendingTrails.mockResolvedValue(pending());
+
+    const result = await synchronise();
+    expect(db.stopContributing).toHaveBeenCalledWith(LOCAL, 'gap_too_large');
+    expect(result.trailsRefused).toBe(1);
+    expect(db.adoptServerTrail).not.toHaveBeenCalled();
+  });
+
+  it('does not send a trail whose geometry is not on the device', async () => {
+    db.listPendingTrails.mockResolvedValue(pending([]));
+    const result = await synchronise();
+    expect(result.trailsRefused).toBe(1);
+    expect(api.requestAuthenticated).not.toHaveBeenCalledWith(
+      '/api/trails',
+      expect.anything(),
+    );
+  });
+
+  it('still brings the catalogue down after a refusal', async () => {
+    refusedWith(422, { reason: 'too_short' });
+    db.listPendingTrails.mockResolvedValue(pending());
+    server({
+      'GET /api/trails': { trails: [TRAIL], deleted: [], cursor: 'c1', complete: true },
+    });
+    refusedWith(422, { reason: 'too_short' });
+    db.countTrackPoints.mockResolvedValue(1);
+
+    expect((await synchronise()).trailsReceived).toBe(1);
+  });
+
+  it('lets a server that is down reach the caller instead of giving up', async () => {
+    // A trail refused for good is different from one that could not be
+    // sent. Recording the second as refused would lose it.
+    refusedWith(503, {});
+    db.listPendingTrails.mockResolvedValue(pending());
+
+    await expect(synchronise()).rejects.toBeInstanceOf(api.ApiError);
+    expect(db.stopContributing).not.toHaveBeenCalled();
   });
 });

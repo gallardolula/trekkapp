@@ -10,7 +10,7 @@
  *  replaceable without touching a rule.
  */
 import { requestAuthenticated } from './api';
-import { Forecast } from '../domain/types';
+import { Forecast, HourlyForecast } from '../domain/types';
 
 /** Where the answer came from, so the screen can say how fresh it is. */
 export type ForecastSource = 'upstream' | 'cache' | 'stale';
@@ -23,7 +23,14 @@ export interface ForecastDay {
 interface ForecastResponse {
   trailId: string;
   days: ForecastDay[];
+  hourly?: HourlyForecast[];
   source: ForecastSource;
+}
+
+export interface TrailWeather {
+  today: ForecastDay | null;
+  /** The hours still ahead, which is all anybody reads them for. */
+  hours: HourlyForecast[];
 }
 
 /**
@@ -35,12 +42,29 @@ interface ForecastResponse {
  * download is never blocked by a forecast nobody could read.
  */
 export async function fetchForecast(trailId: string): Promise<ForecastDay | null> {
+  return (await fetchWeather(trailId)).today;
+}
+
+/**
+ * The day and the hours ahead of it.
+ *
+ * Past hours are dropped here rather than on screen. A forecast for nine
+ * in the morning read at noon is not information, it is clutter sitting
+ * where the next few hours should be.
+ */
+export async function fetchWeather(trailId: string): Promise<TrailWeather> {
   try {
     const response = await requestAuthenticated<ForecastResponse>(
       `/api/trails/${trailId}/forecast`,
     );
-    return response.days[0] ?? null;
+    const now = Date.now();
+    return {
+      today: response.days[0] ?? null,
+      hours: (response.hourly ?? [])
+        .filter((h) => new Date(h.time).getTime() >= now - 30 * 60_000)
+        .slice(0, 12),
+    };
   } catch {
-    return null;
+    return { today: null, hours: [] };
   }
 }

@@ -112,6 +112,8 @@ export default function Home() {
       const result = await synchronise();
       const parts: string[] = [];
       const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+      if (result.trailsSent > 0)
+        parts.push(plural(result.trailsSent, 'sendero compartido', 'senderos compartidos'));
       if (result.reportsSent > 0)
         parts.push(plural(result.reportsSent, 'reporte enviado', 'reportes enviados'));
       if (result.trailsReceived > 0)

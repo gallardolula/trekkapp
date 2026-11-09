@@ -14,8 +14,11 @@
  *  outcome and is reported as one, not treated as a failure.
  */
 import {
+  adoptServerTrail,
   confirmReportsSent,
   countPendingSync,
+  listPendingTrails,
+  stopContributing,
   listPendingReports,
   readSyncState,
   recordSyncFailure,
@@ -35,6 +38,10 @@ export const TRAIL_CURSOR = 'cursor.trails';
 export const REPORT_CURSOR = 'cursor.reports';
 
 export interface SyncResult {
+  /** Trails the server accepted and published. */
+  trailsSent: number;
+  /** Trails it refused, which stay on this phone with the reason recorded. */
+  trailsRefused: number;
   reportsSent: number;
   reportsRejected: number;
   trailsReceived: number;
@@ -75,6 +82,8 @@ interface UploadResult {
  */
 export async function synchronise(): Promise<SyncResult> {
   const result: SyncResult = {
+    trailsSent: 0,
+    trailsRefused: 0,
     reportsSent: 0,
     reportsRejected: 0,
     trailsReceived: 0,
@@ -84,12 +93,69 @@ export async function synchronise(): Promise<SyncResult> {
     pendingAfter: 0,
   };
 
+  // Trails first. A report about a trail the server does not know is
+  // refused, so contributing the trail before sending what was written
+  // about it is the difference between one round trip and never.
+  await pushTrails(result);
   await pushReports(result);
   await pullTrails(result);
   await pullReports(result);
 
   result.pendingAfter = await countPendingSync();
   return result;
+}
+
+/**
+ * Contributes the trails somebody imported on this phone.
+ *
+ * The server assigns an identifier of its own, so the local trail is moved
+ * onto it rather than left as a second copy of the same path. A refusal is
+ * final and is recorded against the trail, which stays local: the track
+ * will not become valid by being sent again.
+ *
+ * A duplicate is not a refusal in the same sense. The server names the
+ * trail already published, and the local one is moved onto that, which is
+ * what it is: somebody imported a recording of a path the catalogue
+ * already holds.
+ */
+async function pushTrails(result: SyncResult): Promise<void> {
+  for (const trail of await listPendingTrails()) {
+    if (trail.points.length < 2) {
+      await stopContributing(trail.id, 'no_geometry');
+      result.trailsRefused++;
+      continue;
+    }
+
+    try {
+      const created = await requestAuthenticated<{ id: string }>('/api/trails', {
+        method: 'POST',
+        body: {
+          name: trail.name,
+          ...(trail.description ? { description: trail.description } : {}),
+          points: trail.points,
+        },
+      });
+      await adoptServerTrail(trail.id, created.id);
+      result.trailsSent++;
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+
+      const detail = error.detail as { reason?: string; trailId?: string } | undefined;
+      if (error.status === 409 && typeof detail?.trailId === 'string') {
+        await adoptServerTrail(trail.id, detail.trailId);
+        result.trailsSent++;
+        continue;
+      }
+
+      if (error.status === 422 || error.status === 400) {
+        await stopContributing(trail.id, detail?.reason ?? 'invalid_track');
+        result.trailsRefused++;
+        continue;
+      }
+
+      throw error;
+    }
+  }
 }
 
 /**

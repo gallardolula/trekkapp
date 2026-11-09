@@ -9,7 +9,7 @@ import * as SQLite from 'expo-sqlite';
 import { uuidFromHex } from '../domain/identity';
 import { computeAttributes } from '../domain/trail';
 import { Forecast, Level, Point, Trail, TrailStatus } from '../domain/types';
-import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP } from './schema';
+import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP, retargetTrail } from './schema';
 
 // The file name changed when the schema moved to English identifiers, so a
 // device holding the previous one starts from a clean database instead of
@@ -1035,4 +1035,93 @@ export async function photoFilesOf(hikeId: string): Promise<string[]> {
     hikeId,
   );
   return rows.map((r) => r.uri);
+}
+
+// ------------------------------------------------- contributing a trail --
+
+/**
+ * Queues a trail for contribution, in the same queue the reports use.
+ *
+ * Queued rather than sent, because a trail is imported wherever the hiker
+ * happens to be, which is often where there is no signal. It travels on
+ * the next synchronisation like everything else the device produced.
+ */
+export async function queueTrailContribution(trailId: string): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `INSERT INTO sync_queue (entity, entity_id, operation, created_at)
+     VALUES ('trail', ?, 'create', ?)
+     ON CONFLICT (entity, entity_id, operation) DO NOTHING`,
+    trailId,
+    now(),
+  );
+}
+
+export interface PendingTrail {
+  id: string;
+  name: string;
+  description?: string;
+  points: Point[];
+}
+
+/** Trails waiting to be contributed, oldest first. */
+export async function listPendingTrails(limit = 5): Promise<PendingTrail[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{ id: string; name: string; description: string | null }>(
+    `SELECT t.id, t.name, t.description
+       FROM sync_queue q
+       JOIN trails t ON t.id = q.entity_id
+      WHERE q.entity = 'trail' AND q.operation = 'create'
+      ORDER BY q.created_at
+      LIMIT ?`,
+    limit,
+  );
+
+  const pending: PendingTrail[] = [];
+  for (const r of rows) {
+    pending.push({
+      id: r.id,
+      name: r.name,
+      points: await readTrackPoints(r.id),
+      ...(r.description !== null ? { description: r.description } : {}),
+    });
+  }
+  return pending;
+}
+
+/**
+ * Adopts the identifier the server assigned to a contributed trail.
+ *
+ * The server generates its own, so without this the same path exists twice
+ * under two identities: reports written here reference a trail the server
+ * has never heard of, and the next delta brings its copy down beside the
+ * local one. Everything hanging off the trail moves with it, inside one
+ * transaction, because a half-moved trail is worse than either end of it.
+ */
+export async function adoptServerTrail(localId: string, serverId: string): Promise<void> {
+  const db = await openDatabase();
+  if (localId === serverId) {
+    await db.runAsync("UPDATE trails SET status = 'published' WHERE id = ?", localId);
+  } else {
+    await db.withTransactionAsync(async () => {
+      for (const [sql, params] of retargetTrail(localId, serverId)) {
+        await db.runAsync(sql, ...(params as never[]));
+      }
+    });
+  }
+  await db.runAsync(
+    "DELETE FROM sync_queue WHERE entity = 'trail' AND entity_id = ?",
+    localId,
+  );
+}
+
+/** Gives up on contributing a trail, which stays on this phone. */
+export async function stopContributing(trailId: string, reason: string): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    `UPDATE sync_queue SET attempts = attempts + 1, last_error = ?
+      WHERE entity = 'trail' AND entity_id = ?`,
+    reason,
+    trailId,
+  );
 }

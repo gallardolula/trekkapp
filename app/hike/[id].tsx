@@ -61,6 +61,7 @@ import {
 import { prepareStorage } from '../../src/startup/storage';
 import { cameraAvailable, capturePhoto, CameraRefused } from '../../src/data/photos';
 import { setRecording } from '../../src/sync/auto';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { ReportSheet, type ReportPlace } from '../../src/ui/ReportSheet';
 import { TrackMap, type MapReport } from '../../src/ui/TrackMap';
 import { Palette, sp, useTheme } from '../../src/ui/theme';
@@ -105,6 +106,16 @@ export default function Hike() {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [counters, setCounters] = useState({ readings: 0, outside: 0, inside: 0 });
   const [detail, setDetail] = useState(false);
+
+  /**
+   * How far up the sheet can be pulled.
+   *
+   * Collapsed shows the figures and the buttons, which is everything
+   * needed while walking. The tallest stop is for the technical detail,
+   * and nothing goes beyond it: a sheet that covers the whole map turns
+   * the map screen into a different screen.
+   */
+  const sheet = useRef<BottomSheet>(null);
 
   // Reporting. The sheet asks what was found; marking a point sends the
   // hiker back to the map with the sheet out of the way, which is the only
@@ -565,7 +576,26 @@ export default function Hike() {
           </View>
         </View>
       ) : (
-        <View style={[s.panel, { paddingBottom: insets.bottom + sp.lg }]}>
+        // A sheet rather than a fixed panel. The map is the screen, and how
+        // much of it the hiker wants to see changes constantly: collapsed
+        // while following the path, pulled up to read the figures or the
+        // detail. A panel of one height has to choose for them.
+        <BottomSheet
+          ref={sheet}
+          index={0}
+          snapPoints={SNAP_POINTS}
+          // Off, and it has to be. Version 5 sizes a sheet to its content
+          // by default, which fights explicit stops: the sheet moves
+          // between them and renders nothing inside.
+          enableDynamicSizing={false}
+          enablePanDownToClose={false}
+          backgroundStyle={{ backgroundColor: c.background }}
+          handleIndicatorStyle={{ backgroundColor: c.border, width: 44 }}
+          bottomInset={0}
+        >
+          <BottomSheetScrollView
+            contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + sp.lg }]}
+          >
           <View style={s.metrics}>
             {[
               [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
@@ -622,7 +652,7 @@ export default function Hike() {
           </Pressable>
 
           {detail && (
-            <ScrollView style={s.detail} showsVerticalScrollIndicator={false}>
+            <View style={s.detail}>
               <Text style={s.detailText}>
                 Radio de tolerancia {TOLERANCE_RADIUS_M} m. La alerta abre tras tres lecturas
                 seguidas fuera y cierra tras tres dentro del setenta por ciento del radio.
@@ -661,9 +691,10 @@ export default function Hike() {
               <Text style={s.detailText}>
                 Todo el cálculo se ejecuta en el dispositivo y sin conexión.
               </Text>
-            </ScrollView>
+            </View>
           )}
-        </View>
+          </BottomSheetScrollView>
+        </BottomSheet>
       )}
 
       <ReportSheet
@@ -684,6 +715,9 @@ export default function Hike() {
     </View>
   );
 }
+
+/** Collapsed, opened, and as far as it goes. */
+const SNAP_POINTS = ['26%', '48%', '82%'];
 
 const styles = (c: Palette) =>
   StyleSheet.create({
@@ -763,6 +797,7 @@ const styles = (c: Palette) =>
       paddingTop: sp.lg,
       maxHeight: '58%',
     },
+    sheet: { paddingHorizontal: sp.lg, paddingTop: sp.xs },
 
     metrics: { flexDirection: 'row', marginBottom: sp.lg },
     metric: { flex: 1, alignItems: 'center' },

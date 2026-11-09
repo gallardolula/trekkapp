@@ -1,10 +1,17 @@
 /** Loads the catalogue the prototype ships with.
  *
- *  The four trails come from the application's own seed module, imported
+ *  The trails come from the application's own catalogue module, imported
  *  rather than copied, so the device and the server describe the same
  *  routes under the same identifiers. A second definition would drift, and
  *  the first symptom would be the same trail appearing twice on a phone
  *  after synchronising.
+ *
+ *  The server needs them for its own sake and not only for the device.
+ *  Everything it keeps about a trail hangs off this row: a report cites it,
+ *  a forecast is cached against it, and both are refused for a trail the
+ *  server does not hold. A phone showing a catalogue the server never
+ *  received therefore has trails whose weather and reports cannot work, so
+ *  this runs after every catalogue is generated and not only at install.
  *
  *  Idempotent: running it again updates the rows instead of adding more.
  *

@@ -7,6 +7,7 @@
  *  own title and there is nowhere to go back to.
  */
 import { Stack } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 
@@ -50,10 +51,15 @@ function Navigation() {
 
 export default function Layout() {
   return (
-    <ThemeProvider>
-      <ConnectivityProvider>
-        <Navigation />
-      </ConnectivityProvider>
-    </ThemeProvider>
+    // The gesture root has to sit above everything that reacts to a drag,
+    // which is what lets the sheet on the hike screen be pulled up over
+    // the map. Without it the sheet renders and does not move.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <ConnectivityProvider>
+          <Navigation />
+        </ConnectivityProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

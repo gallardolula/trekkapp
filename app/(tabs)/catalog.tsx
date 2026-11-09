@@ -11,7 +11,14 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
-import { listTrails, newId, readProfile, saveTrail, TrailSummary } from '../../src/data/db';
+import {
+  listTrails,
+  newId,
+  queueTrailContribution,
+  readProfile,
+  saveTrail,
+  TrailSummary,
+} from '../../src/data/db';
 import { CATALOGUE_ATTRIBUTION } from '../../src/startup/seed';
 import { InvalidGpxError, parseGpx } from '../../src/data/gpx';
 import { Level, LEVEL_ORDER } from '../../src/domain/types';
@@ -89,11 +96,17 @@ export default function Catalog() {
         source: 'imported',
       });
 
+      // Queued rather than sent. A trail is imported wherever somebody
+      // happens to be, which is often where there is no signal, so it
+      // travels on the next synchronisation like everything else.
+      await queueTrailContribution(saved.id);
+
       setTrails(await listTrails());
       setImportMessage(
         `Se importó ${saved.name}: ${(saved.attributes.distanceM / 1000).toFixed(1)} km, ` +
           `${Math.round(saved.attributes.elevationGainM)} m de desnivel, exigencia ` +
-          `${LEVEL_LABEL[saved.attributes.difficulty]}.`,
+          `${LEVEL_LABEL[saved.attributes.difficulty]}. Se va a compartir con el catálogo en ` +
+          `la próxima sincronización.`,
       );
     } catch (error) {
       setImportMessage(
@@ -147,6 +160,7 @@ export default function Catalog() {
                   <Text style={s.chipText}>{LEVEL_LABEL[t.attributes.difficulty]}</Text>
                 </View>
                 {exceeds && <Text style={s.exceeds}>Supera tu nivel</Text>}
+                {t.status === 'local' && <Text style={s.local}>Sólo en tu teléfono</Text>}
                 {t.downloadedAt !== null && <Text style={s.ready}>Descargado</Text>}
               </View>
             </Pressable>
@@ -162,6 +176,7 @@ const styles = (c: Palette) =>
     content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
     title: { fontSize: 32, fontWeight: '800', color: c.text, marginBottom: sp.lg },
     attribution: { color: c.mutedText, fontSize: 11, lineHeight: 16, marginBottom: sp.md },
+    local: { color: c.warning, fontSize: 11.5, fontWeight: '600' },
     centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     import: {
       borderColor: c.primary,
