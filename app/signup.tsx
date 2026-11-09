@@ -35,6 +35,7 @@ import { requestPublic } from '../src/data/api';
 import { readProfile } from '../src/data/db';
 import { Level } from '../src/domain/types';
 import { Button, Field, Notice, ONBOARDING_STEPS, Question, StepBar } from '../src/ui/forms';
+import { PreferenceGrid } from '../src/ui/PreferenceGrid';
 import { confirmHandover } from '../src/ui/handover';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
@@ -66,7 +67,7 @@ const SERVER_ERRORS: Record<string, string> = {
 };
 
 /** The questions this screen asks. The bar counts every screen. */
-const QUESTIONS = 4;
+const QUESTIONS = 5;
 
 export default function SignUp() {
   const router = useRouter();
@@ -74,6 +75,7 @@ export default function SignUp() {
   const s = useMemo(() => styles(c), [c]);
 
   const [step, setStep] = useState(0);
+  const [preferences, setPreferences] = useState<string[]>([]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -101,7 +103,8 @@ export default function SignUp() {
   const nameError = name.trim().length < 2 ? 'Ingresá tu nombre.' : null;
 
   const levelError = level === null ? 'Elegí el tipo de salidas que hacés.' : null;
-  const stepError = [emailError, passwordError, nameError, levelError][step];
+  // The fifth question has no wrong answer, including no answer at all.
+  const stepError = [emailError, passwordError, nameError, levelError, null][step];
   const canAdvance = !stepError;
 
   function next() {
@@ -146,9 +149,16 @@ export default function SignUp() {
       // Nothing is stored here any more. The account exists on the server
       // but holds no session, and the next screen is where the code turns
       // it into one.
+      // The preferences travel with them rather than being written now.
+      // There is no profile row on this device until the code is accepted
+      // and the account is adopted, so there is nothing to write them to.
       router.replace({
         pathname: '/verify',
-        params: { email: started.email, minutes: String(started.expiresInMinutes) },
+        params: {
+          email: started.email,
+          minutes: String(started.expiresInMinutes),
+          preferences: preferences.join(','),
+        },
       });
     } catch (error) {
       const code = (error as { code?: string }).code;
@@ -277,6 +287,16 @@ export default function SignUp() {
           </>
         )}
 
+        {step === 4 && (
+          <>
+            <Question
+              title="¿Qué senderos te gustan?"
+              detail="Elegí los que quieras, o ninguno. Lo podés cambiar después."
+            />
+            <PreferenceGrid chosen={preferences} onChange={setPreferences} />
+          </>
+        )}
+
         {serverError && <Notice text={serverError} tone="danger" />}
 
         <View style={s.actions}>
@@ -296,12 +316,6 @@ export default function SignUp() {
           </Link>
         </View>
 
-        {last && (
-          <Text style={s.note}>
-            La cuenta se registra en el servidor, así que este paso necesita conexión por única
-            vez. Eso es lo que te permite recuperarla desde otro dispositivo.
-          </Text>
-        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -335,11 +349,4 @@ const styles = (c: Palette) =>
     },
     alternativeText: { color: c.mutedText, fontSize: 13 },
     link: { color: c.primary, fontSize: 13, fontWeight: '700' },
-    note: {
-      color: c.mutedText,
-      fontSize: 11.5,
-      lineHeight: 16,
-      marginTop: sp.lg,
-      textAlign: 'center',
-    },
   });

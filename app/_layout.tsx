@@ -41,15 +41,9 @@ function Navigation() {
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ title: 'Crear cuenta' }} />
         <Stack.Screen name="signin" options={{ title: 'Iniciar sesión' }} />
-        {/* The last two screens of signing up. The code screen keeps its
-            way back, because somebody who cannot read the message needs to
-            get out of it; the preferences end the sequence, and going back
-            from them would lead to a code that has already been spent. */}
+        {/* The last screen of signing up. It keeps its way back, because
+            somebody who cannot read the message needs to get out of it. */}
         <Stack.Screen name="verify" options={{ title: 'Confirmar el correo' }} />
-        <Stack.Screen
-          name="preferences"
-          options={{ title: 'Tus senderos', headerBackVisible: false }}
-        />
         <Stack.Screen name="recover" options={{ title: 'Cambiar la contraseña' }} />
         <Stack.Screen name="trail/[id]" options={{ title: 'Sendero' }} />
         {/* Full screen map, with its own floating controls over it. */}

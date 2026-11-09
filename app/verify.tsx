@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ApiError, requestPublic } from '../src/data/api';
-import { adoptAccount, readProfile } from '../src/data/db';
+import { adoptAccount, readProfile, savePreferences } from '../src/data/db';
 import { saveTokens } from '../src/data/session';
 import { Level } from '../src/domain/types';
 import { Button, Field, Notice, ONBOARDING_STEPS, Question, StepBar } from '../src/ui/forms';
@@ -54,9 +54,16 @@ export default function Verify() {
   const { c } = useTheme();
   const s = useMemo(() => styles(c), [c]);
 
-  const params = useLocalSearchParams<{ email?: string; minutes?: string }>();
+  const params = useLocalSearchParams<{
+    email?: string;
+    minutes?: string;
+    preferences?: string;
+  }>();
   const email = (params.email ?? '').trim().toLowerCase();
   const minutes = Number(params.minutes) || DEFAULT_MINUTES;
+  // Chosen on the previous screen and carried here, because this is where
+  // the profile row that holds them comes into existence.
+  const chosen = (params.preferences ?? '').split(',').filter(Boolean);
 
   const [code, setCode] = useState('');
   const [working, setWorking] = useState(false);
@@ -109,8 +116,12 @@ export default function Verify() {
       });
       if (replaced && !occupied) reportHandover();
 
-      // The last screen of signing up, not the application itself.
-      router.replace('/preferences');
+      // Written even when nothing was picked, because asked and skipped is
+      // a different state from never asked, and only the second is worth
+      // asking again. Never a reason to fail a registration that worked.
+      await savePreferences(chosen).catch(() => undefined);
+
+      router.replace('/home');
     } catch (caught) {
       const failure = caught as ApiError;
       const named = SERVER_ERRORS[failure.code ?? ''];
@@ -160,7 +171,7 @@ export default function Verify() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <StepBar step={4} of={ONBOARDING_STEPS} />
+        <StepBar step={5} of={ONBOARDING_STEPS} />
         <Question
           title="Confirmá tu correo"
           detail={
