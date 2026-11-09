@@ -272,6 +272,13 @@ async function run(): Promise<void> {
 
   console.log(`  wrote ${trails.length} trails to ${file}`);
   console.log(summary);
+
+  // The catalogue is of no use to the server until it holds these trails
+  // too. A report cites a trail and a forecast is cached against one, and
+  // the server refuses both for a trail it does not know, so a catalogue
+  // that ships without being seeded gives the phone trails whose weather
+  // and reports cannot work.
+  console.log('\n  now run: npm run seed');
 }
 
 run().catch((error) => {
