@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../app';
 import { pool } from '../db/pool';
+import { outbox } from '../mail/mailer';
 import { clearOutbox, codeSentTo } from './accounts';
 import { resetSchema } from './schema';
 
@@ -283,6 +284,130 @@ describe('email verification', () => {
       [email],
     );
     expect(rows[0]!.attempts).toBe(0);
+  });
+});
+
+describe('password recovery', () => {
+  const forgot = (email: string) =>
+    app.inject({ method: 'POST', url: '/api/auth/password/forgot', payload: { email } });
+
+  const reset = (email: string, code: string, password: string) =>
+    app.inject({ method: 'POST', url: '/api/auth/password/reset', payload: { email, code, password } });
+
+  const signIn = (email: string, password: string) =>
+    app.inject({ method: 'POST', url: '/api/auth/session', payload: { email, password } });
+
+  const age = (email: string, purpose: string) =>
+    pool.query(
+      `UPDATE email_codes SET created_at = now() - interval '2 minutes'
+        WHERE purpose = $2
+          AND user_id = (SELECT id FROM users WHERE lower(email) = lower($1))`,
+      [email, purpose],
+    );
+
+  it('sends a code and lets the new password in', async () => {
+    const { email } = await account();
+    expect((await forgot(email)).statusCode).toBe(202);
+
+    const response = await reset(email, codeSentTo(email), 'Recuperada2026!');
+    expect(response.statusCode).toBe(201);
+    expect(typeof response.json().accessToken).toBe('string');
+
+    expect((await signIn(email, 'Recuperada2026!')).statusCode).toBe(200);
+    expect((await signIn(email, 'Sierras2026!')).statusCode).toBe(401);
+  });
+
+  it('closes every other session of the account', async () => {
+    // Somebody recovering a password may be doing it because another person
+    // has the old one, and that person's refresh token would outlive it.
+    const { email, body } = await account();
+    const refreshToken = body.refreshToken as string;
+    await forgot(email);
+    await reset(email, codeSentTo(email), 'Recuperada2026!');
+
+    const renewed = await app.inject({
+      method: 'POST',
+      url: '/api/auth/refresh',
+      payload: { refreshToken },
+    });
+    expect(renewed.statusCode).toBe(401);
+  });
+
+  it('does not accept a code that was issued to confirm an address', async () => {
+    // The two codes look alike and are not interchangeable. One proves an
+    // address so an account can start; the other proves it so a password can
+    // be replaced.
+    const { email } = await register();
+    const confirmation = codeSentTo(email);
+    const response = await reset(email, confirmation, 'Recuperada2026!');
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('does not accept a recovery code as a confirmation', async () => {
+    const { email } = await account();
+    await forgot(email);
+    const recovery = codeSentTo(email);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register/verify',
+      payload: { email, code: recovery },
+    });
+    // Already confirmed, so the address never reaches the code at all.
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('refuses a new password that breaks the policy', async () => {
+    const { email } = await account();
+    await forgot(email);
+    const response = await reset(email, codeSentTo(email), 'corta');
+    expect(response.statusCode).toBe(400);
+    expect(response.json().problems).toContain('too_short');
+  });
+
+  it('answers an unknown address the same way as a real one, and sends nothing', async () => {
+    const { email } = await account();
+    await age(email, 'reset_password');
+    const known = await forgot(email);
+    clearOutbox();
+    const unknown = await forgot('nobody.here@example.test');
+
+    expect(unknown.statusCode).toBe(known.statusCode);
+    expect(Object.keys(unknown.json()).sort()).toEqual(Object.keys(known.json()).sort());
+    expect(outbox).toHaveLength(0);
+  });
+
+  it('will not recover an address nobody confirmed', async () => {
+    // That account has a registration to finish, not a password to replace,
+    // and recovery here would be a second way to claim an unheld address.
+    const { email } = await register();
+    clearOutbox();
+    expect((await forgot(email)).statusCode).toBe(202);
+    expect(outbox).toHaveLength(0);
+  });
+
+  it('will not send another recovery code inside the cooldown', async () => {
+    const { email } = await account();
+    expect((await forgot(email)).statusCode).toBe(202);
+    const again = await forgot(email);
+    expect(again.statusCode).toBe(429);
+    expect(again.json().retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it('tells the owner when their account locks', async () => {
+    const { email } = await account();
+    clearOutbox();
+    for (let i = 0; i < 5; i++) await signIn(email, 'Incorrecta1!');
+
+    const told = outbox.filter((m) => m.to.toLowerCase() === email.toLowerCase());
+    expect(told).toHaveLength(1);
+    expect(told[0]!.subject).toMatch(/bloquead/i);
+  });
+
+  it('tells the owner once and not on every failure', async () => {
+    const { email } = await account();
+    clearOutbox();
+    for (let i = 0; i < 4; i++) await signIn(email, 'Incorrecta1!');
+    expect(outbox.filter((m) => m.to.toLowerCase() === email.toLowerCase())).toHaveLength(0);
   });
 });
 

@@ -193,6 +193,12 @@ export default function SignIn() {
             Creá una
           </Link>
         </View>
+
+        <View style={s.alternative}>
+          <Link href="/recover" style={s.link}>
+            Olvidé mi contraseña
+          </Link>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );

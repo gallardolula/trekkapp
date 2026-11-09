@@ -29,6 +29,7 @@ is never rewritten: a decision that changes is superseded by a new record.
 | [0014](./0014-photographs-stay-on-the-device.md) | Photographs stay on the device that took them | Accepted | Mobile app, privacy |
 | [0015](./0015-offline-identity-is-a-claim.md) | Offline, identity is a claim and not a proof | Accepted | Security, sync |
 | [0016](./0016-an-address-is-proven-before-the-account-exists.md) | An address is proven before the account exists | Accepted | Security, accounts |
+| [0017](./0017-password-recovery-by-code.md) | Password recovery by code, and the lock is reported to its owner | Accepted | Security, accounts |
 
 ## Writing a new record
 

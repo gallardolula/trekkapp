@@ -1,9 +1,8 @@
 /** Sending mail, and what happens when there is nowhere to send it.
  *
- *  One address to reach, the person registering, and one thing to say to
- *  them. So this is a transport and a template and nothing more; a mail
- *  library with layouts and queues would be more machinery than the single
- *  message this server sends.
+ *  One address to reach, the owner of an account, and three things to say to
+ *  them. So this is a transport and three templates and nothing more; a mail
+ *  library with layouts and queues would be more machinery than this needs.
  *
  *  Configured through the environment because the credential is a secret
  *  that belongs to whoever runs the server, not to the repository. With
@@ -93,7 +92,7 @@ export async function sendMail(message: Message): Promise<{ delivered: boolean }
   }
 }
 
-/** The one message this server sends. */
+/** Confirming the address a registration was started with. */
 export function verificationMessage(code: string, minutes: number): Omit<Message, 'to'> {
   return {
     subject: `${code} es tu código de TrekkApp`,
@@ -102,5 +101,39 @@ export function verificationMessage(code: string, minutes: number): Omit<Message
       `Vence en ${minutes} minutos y sirve una sola vez.\n\n` +
       'Si no te registraste en TrekkApp, podés ignorar este mensaje. ' +
       'Sin el código la cuenta no se crea.\n',
+  };
+}
+
+/** Recovering a password, which is the same proof put to a different use. */
+export function recoveryMessage(code: string, minutes: number): Omit<Message, 'to'> {
+  return {
+    subject: `${code} es tu código para cambiar la contraseña`,
+    text:
+      `Tu código para elegir una contraseña nueva es ${code}.\n\n` +
+      `Vence en ${minutes} minutos y sirve una sola vez.\n\n` +
+      'Al cambiarla se cierran todas las sesiones abiertas de la cuenta, en ' +
+      'este teléfono y en cualquier otro.\n\n' +
+      'Si no pediste cambiarla, podés ignorar este mensaje. Tu contraseña ' +
+      'actual sigue siendo la misma.\n',
+  };
+}
+
+/**
+ * Telling the owner that their account locked.
+ *
+ * Sent to the owner and to nobody else, so it says what happened without
+ * asking them to do anything. Somebody who mistyped their own password five
+ * times does not need instructions; somebody who did not is the reason this
+ * message exists at all.
+ */
+export function lockMessage(minutes: number): Omit<Message, 'to'> {
+  return {
+    subject: 'Tu cuenta de TrekkApp quedó bloqueada por unos minutos',
+    text:
+      'Hubo cinco intentos fallidos de iniciar sesión, así que bloqueamos la ' +
+      `cuenta por ${minutes} minutos.\n\n` +
+      'Si fuiste vos, esperá ese rato y volvé a entrar.\n\n' +
+      'Si no fuiste vos, cambiá la contraseña desde la pantalla de inicio de ' +
+      'sesión cuando puedas.\n',
   };
 }

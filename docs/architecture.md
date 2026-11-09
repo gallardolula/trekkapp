@@ -249,6 +249,8 @@ imported rather than reimplemented, so the two cannot drift.
 | `/api/auth/register` | POST | Starts an account and sends a code to the address ([ADR-0016](./adr/0016-an-address-is-proven-before-the-account-exists.md)) | Public | Built |
 | `/api/auth/register/verify` | POST | Confirms the address and issues the first session | Public | Built |
 | `/api/auth/register/resend` | POST | Sends another code, at most one a minute | Public | Built |
+| `/api/auth/password/forgot` | POST | Sends a code to choose a new password ([ADR-0017](./adr/0017-password-recovery-by-code.md)) | Public | Built |
+| `/api/auth/password/reset` | POST | Sets the new password and closes every other session | Public | Built |
 | `/api/auth/session` | POST | Sign in. Answers 403 and sends a code when the address was never confirmed | Public | Built |
 | `/api/auth/refresh` | POST | Exchange a refresh token, rotating it | Public | Built |
 | `/api/auth/logout` | POST | Revoke every session of the account | Required | Built |
