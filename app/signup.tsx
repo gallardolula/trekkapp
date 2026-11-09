@@ -34,7 +34,7 @@ import {
 import { requestPublic } from '../src/data/api';
 import { readProfile } from '../src/data/db';
 import { Level } from '../src/domain/types';
-import { Button, Field, Notice, Question, StepBar } from '../src/ui/forms';
+import { Button, Field, Notice, ONBOARDING_STEPS, Question, StepBar } from '../src/ui/forms';
 import { confirmHandover } from '../src/ui/handover';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
@@ -65,7 +65,8 @@ const SERVER_ERRORS: Record<string, string> = {
   invalid_body: 'Revisá los datos ingresados.',
 };
 
-const STEPS = 4;
+/** The questions this screen asks. The bar counts every screen. */
+const QUESTIONS = 4;
 
 export default function SignUp() {
   const router = useRouter();
@@ -107,7 +108,7 @@ export default function SignUp() {
     setAttempted(true);
     if (!canAdvance) return;
     setAttempted(false);
-    if (step < STEPS - 1) setStep((n) => n + 1);
+    if (step < QUESTIONS - 1) setStep((n) => n + 1);
     else void createAccount();
   }
 
@@ -167,7 +168,7 @@ export default function SignUp() {
   }
 
   const levelColour = difficultyColour(c);
-  const last = step === STEPS - 1;
+  const last = step === QUESTIONS - 1;
 
   return (
     <KeyboardAvoidingView
@@ -175,7 +176,7 @@ export default function SignUp() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <StepBar step={step} of={STEPS} />
+        <StepBar step={step} of={ONBOARDING_STEPS} />
 
         {step === 0 && (
           <>

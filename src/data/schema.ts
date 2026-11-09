@@ -8,7 +8,7 @@
  *  the hiker to lose the trails already downloaded.
  */
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /**
  * A version 4 UUID built by SQLite itself.
@@ -380,6 +380,19 @@ export const MIGRATIONS: string[] = [
     note       TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_photos_hike ON hike_photos(hike_id);
+  `,
+
+  // v9 - what kind of outing the hiker is after
+  `
+  -- Asked at the end of signing up and kept here, as a JSON array of
+  -- identifiers from domain/preferences.ts. Null means nobody has been
+  -- asked yet, which is a different state from an empty array, which means
+  -- asked and skipped.
+  --
+  -- A column and not a table. These are a handful of flags read together
+  -- and written together, and a row per preference would be a join for
+  -- nothing.
+  ALTER TABLE profile ADD COLUMN preferences TEXT;
   `,
 ];
 

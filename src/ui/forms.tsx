@@ -198,6 +198,19 @@ function ClearIcon({ colour }: { colour: string }) {
  * do, and it only works if the person can see that it ends. Without the
  * bar, a form that reveals itself one question at a time feels endless.
  */
+/**
+ * How many screens signing up takes, counted here and nowhere else.
+ *
+ * The bar used to be told four by the screen that draws it, which was the
+ * number of questions that screen asks rather than the number of screens
+ * somebody goes through. Confirming the address and choosing what kind of
+ * outing they are after are two more, and a bar that fills up before the
+ * end is worse than no bar.
+ *
+ * 0 to 3 are the questions, 4 is the code, 5 is the preferences.
+ */
+export const ONBOARDING_STEPS = 6;
+
 export function StepBar({ step, of }: { step: number; of: number }) {
   const { c } = useTheme();
   return (

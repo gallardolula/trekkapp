@@ -25,7 +25,7 @@ import { ApiError, requestPublic } from '../src/data/api';
 import { adoptAccount, readProfile } from '../src/data/db';
 import { saveTokens } from '../src/data/session';
 import { Level } from '../src/domain/types';
-import { Button, Field, Notice, Question } from '../src/ui/forms';
+import { Button, Field, Notice, ONBOARDING_STEPS, Question, StepBar } from '../src/ui/forms';
 import { reportHandover } from '../src/ui/handover';
 import { Palette, sp, useTheme } from '../src/ui/theme';
 
@@ -109,7 +109,8 @@ export default function Verify() {
       });
       if (replaced && !occupied) reportHandover();
 
-      router.replace('/home');
+      // The last screen of signing up, not the application itself.
+      router.replace('/preferences');
     } catch (caught) {
       const failure = caught as ApiError;
       const named = SERVER_ERRORS[failure.code ?? ''];
@@ -159,6 +160,7 @@ export default function Verify() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        <StepBar step={4} of={ONBOARDING_STEPS} />
         <Question
           title="Confirmá tu correo"
           detail={
