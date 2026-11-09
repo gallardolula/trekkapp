@@ -1,34 +1,68 @@
 /** Assisted hike.
  *
- *  Continuously evaluates the distance between the hiker's position and the
- *  downloaded track, and applies the deviation rule with its hysteresis. Two
- *  position sources are offered: the device's satellite receiver, which is
- *  what the field uses, and a replay of the track with an induced departure,
- *  which lets the alert be seen opening and clearing without being on site.
+ *  The map fills the screen and everything else floats over it. A trail is
+ *  walked by looking at where the path goes next, and the previous layout,
+ *  a map the size of a postcard above a column of cards, showed a line with
+ *  no surroundings. The surroundings are the part that tells somebody where
+ *  they are.
+ *
+ *  Underneath, it continuously evaluates the distance between the hiker's
+ *  position and the downloaded track, and applies the deviation rule with
+ *  its hysteresis. Two position sources are offered: the device's satellite
+ *  receiver, which is what the field uses, and a replay of the track with
+ *  an induced departure, which lets the alert be seen opening and clearing
+ *  without being on site.
  */
 import * as Location from 'expo-location';
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import {
   appendHikePoint,
   finishHike,
+  listTrailReports,
+  listTrails,
+  readProfile,
+  readTrackPoints,
+  recordAlert,
+  saveReport,
   startHike,
+  type StoredReport,
 } from '../../src/data/db';
-import { haversineDistance } from '../../src/domain/geo';
-import { TrackMap } from '../../src/ui/TrackMap';
-import { downloadedRegionIds, styleUrlFor } from '../../src/data/regions';
-
-import { readTrackPoints, recordAlert, saveReport } from '../../src/data/db';
-import { distanceToTrack } from '../../src/domain/geo';
-import { evaluateDeviation, TOLERANCE_RADIUS_M } from '../../src/domain/rules';
+import { resolveMapSource, type MapSource } from '../../src/data/regions';
+import { anchorOnTrack, distanceToTrack, haversineDistance } from '../../src/domain/geo';
+import { reportSeverity } from '../../src/domain/reports';
+import {
+  evaluateAttempt,
+  evaluateDeviation,
+  evaluateStart,
+  START_RADIUS_M,
+  TOLERANCE_RADIUS_M,
+} from '../../src/domain/rules';
 import { totalDistance } from '../../src/domain/trail';
-import { DeviationState, INITIAL_DEVIATION_STATE, Point } from '../../src/domain/types';
+import {
+  AttemptDecision,
+  DeviationState,
+  INITIAL_DEVIATION_STATE,
+  Point,
+} from '../../src/domain/types';
 import { prepareStorage } from '../../src/startup/storage';
+import { setRecording } from '../../src/sync/auto';
+import { ReportSheet, type ReportPlace } from '../../src/ui/ReportSheet';
+import { TrackMap, type MapReport } from '../../src/ui/TrackMap';
 import { Palette, sp, useTheme } from '../../src/ui/theme';
-
-const CANVAS = { width: 320, height: 300, margin: 18 };
-const REPORT_KINDS = ['Vado crecido', 'Marca borrada', 'Paso cerrado'];
 
 /** Shifts a point sideways by a given number of metres. */
 function offsetPoint(p: Point, meters: number): Point {
@@ -38,8 +72,11 @@ function offsetPoint(p: Point, meters: number): Point {
 
 export default function Hike() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { c } = useTheme();
   const s = useMemo(() => styles(c), [c]);
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const [track, setTrack] = useState<Point[]>([]);
   const [position, setPosition] = useState<Point | null>(null);
@@ -58,22 +95,97 @@ export default function Hike() {
   const hikeId = useRef<string | null>(null);
   const recorded = useRef({ count: 0, metres: 0, deviations: 0, last: null as Point | null });
   const [walked, setWalked] = useState(0);
-  // Changing this frames the entire route again.
+  // Changing these moves the camera: one frames the whole route, the other
+  // comes back to the hiker.
   const [fitToken, setFitToken] = useState(0);
+  const [centreToken, setCentreToken] = useState(0);
   const [distance, setDistance] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
   const [permissionDenied, setPermissionDenied] = useState(false);
-  const [showReportKinds, setShowReportKinds] = useState(false);
-  const [reportsMade, setReportsMade] = useState(0);
   const [counters, setCounters] = useState({ readings: 0, outside: 0, inside: 0 });
+  const [detail, setDetail] = useState(false);
+
+  // Reporting. The sheet asks what was found; marking a point sends the
+  // hiker back to the map with the sheet out of the way, which is the only
+  // way to tap a place that the sheet would otherwise be covering.
+  const [reports, setReports] = useState<StoredReport[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [place, setPlace] = useState<ReportPlace>({ kind: 'here' });
+  const [pick, setPick] = useState<Point | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
 
   const state = useRef<DeviationState>(INITIAL_DEVIATION_STATE);
+
+  /**
+   * Where the hiker is, before the walk starts.
+   *
+   * One reading and not a watch. The continuous one only runs while a walk
+   * is under way, which left the check on how far away somebody is with
+   * nothing to measure: pressing start reported that the receiver had not
+   * answered, when what it had not done was been asked.
+   *
+   * Coarse on purpose. Deciding whether somebody is at the trail or in
+   * another city needs nothing better, and the cheap fix comes from the
+   * network in a second rather than from satellites in thirty.
+   */
+  const [here, setHere] = useState<Point | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!active) return;
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+        return;
+      }
+      setPermissionDenied(false);
+      try {
+        const fix = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (active) setHere({ lat: fix.coords.latitude, lon: fix.coords.longitude });
+      } catch {
+        // No fix indoors or with the radio off. The screen says so where
+        // it matters, which is when somebody tries to set out.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // The trail and the level, which together decide whether setting out
+  // needs a confirmation. Read here because this is the screen where
+  // somebody sets out, and the question has to be asked at that moment.
+  const [attempt, setAttempt] = useState<AttemptDecision | null>(null);
 
   useEffect(() => {
     prepareStorage()
       .then(() => readTrackPoints(String(id)))
       .then(setTrack);
   }, [id]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [list, hiker] = await Promise.all([listTrails(), readProfile()]);
+      const t = list.find((x) => x.id === String(id));
+      if (active && t && hiker) setAttempt(evaluateAttempt(t.attributes, hiker.level));
+    })();
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const refreshReports = useCallback(async () => {
+    setReports(await listTrailReports(String(id)));
+  }, [id]);
+
+  useEffect(() => {
+    void refreshReports();
+  }, [refreshReports]);
 
   /** Feeds one position reading into the rules engine. */
   function process(p: Point, progressIndex?: number) {
@@ -127,6 +239,11 @@ export default function Hike() {
     })();
     return () => {
       active = false;
+      // Leaving the screen ends the walk however it was left, including by
+      // the back gesture, so the flag is cleared here and not only by the
+      // button. Otherwise walking away from a recording would keep the
+      // device from ever synchronising again.
+      setRecording(false);
       const current = hikeId.current;
       if (!current) return;
       hikeId.current = null;
@@ -147,13 +264,66 @@ export default function Hike() {
     setCounters({ readings: 0, outside: 0, inside: 0 });
   }, [replay]);
 
-  function start() {
+  /**
+   * Begins the walk, after the two checks that belong to this moment.
+   *
+   * Both used to live elsewhere or nowhere. The level check was attached
+   * to marking a trail for offline use, so opening a trail beyond your
+   * level and pressing start asked nothing; and there was no check at all
+   * that the hiker was anywhere near the path.
+   */
+  async function start() {
+    // Where they are. A refusal, because this is a fact rather than a
+    // judgement: a walk recorded from another city enters the history as
+    // a walk and anchors any report to a path nobody was on.
+    if (!replay && permissionDenied) {
+      Alert.alert(
+        'Necesitamos saber dónde estás',
+        'Sin permiso de ubicación no podemos comprobar que estés en el sendero, y lo que se ' +
+          'registre no sería lo que caminaste. Activalo desde los ajustes del teléfono, o simulá ' +
+          'el recorrido para probar la aplicación.',
+        [
+          { text: 'Entendido' },
+          { text: 'Simular el recorrido', onPress: () => setReplay(true) },
+        ],
+      );
+      return;
+    }
+
+    const where = evaluateStart(replay ? track[0]! : (position ?? here), track);
+    if (!where.allowed) {
+      Alert.alert('Todavía no podés iniciar', where.reason!, [
+        { text: 'Entendido' },
+        { text: 'Simular el recorrido', onPress: () => setReplay(true) },
+      ]);
+      return;
+    }
+
+    // What they declared. A question and never a refusal, because the
+    // person knows things about themselves the application does not.
+    if (attempt?.requiresConfirmation && !(await confirmLevel(attempt.reason!))) return;
+
     recorded.current = { count: 0, metres: 0, deviations: 0, last: null };
     setWalked(0);
     setNavigating(true);
+    setCentreToken((t) => t + 1);
+    // Nothing reaches for the network from here on. The automatic
+    // synchronisation refuses while this is set.
+    setRecording(true);
+  }
+
+  /** Asks before setting out on something harder than the declared level. */
+  function confirmLevel(reason: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      Alert.alert('Supera tu nivel declarado', `${reason}\n\n¿Querés iniciarlo igual?`, [
+        { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Iniciar igual', style: 'destructive', onPress: () => resolve(true) },
+      ]);
+    });
   }
 
   function stop() {
+    setRecording(false);
     setNavigating(false);
     setPosition(null);
     setDistance(null);
@@ -202,47 +372,128 @@ export default function Hike() {
     };
   }, [navigating, replay, track]);
 
-  // Which downloaded region, if any, can draw this track. Resolved once:
-  // asking MapLibre on every render would hit the native bridge during the
-  // hike, which is the moment the device can least afford it.
-  const [styleUrl, setStyleUrl] = useState<string | null>(null);
+  // Which map can be drawn, resolved once. Asking MapLibre on every render
+  // would hit the native bridge during the hike, which is the moment the
+  // device can least afford it.
+  const [map, setMap] = useState<MapSource | null>(null);
   useEffect(() => {
     let active = true;
     (async () => {
-      const ids = await downloadedRegionIds();
-      if (active && ids.length > 0) setStyleUrl(styleUrlFor(ids[0]!));
+      const source = await resolveMapSource(track[0] ?? null);
+      if (active) setMap(source);
     })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [track]);
 
-  async function addReport(kind: string) {
+  /** A tap while marking, snapped onto the path. */
+  function onPick(tapped: Point) {
+    if (track.length === 0) return;
+    const anchor = anchorOnTrack(tapped, track);
+    setPick(anchor.point);
+    setPlace({ kind: 'onTrack', alongM: anchor.alongM, offTrackM: anchor.offTrackM });
+  }
+
+  function confirmPick() {
+    setPicking(false);
+    setSheetOpen(true);
+  }
+
+  function cancelPick() {
+    setPicking(false);
+    setPick(null);
+    setPlace({ kind: 'here' });
+    setSheetOpen(true);
+  }
+
+  async function saveTheReport(draft: { kindId: string; comment: string }) {
+    // Where it goes, in order of what the hiker chose. A report marked on
+    // the map is anchored to the path; one left where they stand carries
+    // the reading as it came.
+    const at = place.kind === 'onTrack' ? pick : position;
     await saveReport({
-      id: `report-${Date.now()}`,
       trailId: String(id),
-      kind,
-      lat: position?.lat,
-      lon: position?.lon,
+      kind: draft.kindId,
+      ...(draft.comment ? { comment: draft.comment } : {}),
+      ...(at ? { lat: at.lat, lon: at.lon } : {}),
     });
-    setReportsMade((n) => n + 1);
-    setShowReportKinds(false);
+    await refreshReports();
+    setSheetOpen(false);
+    setPick(null);
+    setPlace({ kind: 'here' });
+    setSaved('Aviso guardado. Se envía en la próxima sincronización.');
+    setTimeout(() => setSaved(null), 4000);
   }
 
   if (track.length === 0) {
     return (
-      <View style={s.centre}>
+      <View style={[s.centre, { backgroundColor: c.background }]}>
         <ActivityIndicator color={c.primary} />
       </View>
     );
   }
 
   const coveredM = totalDistance(track.slice(0, Math.max(1, progress + 1)));
+  // How far the hiker is from the path, before setting out.
+  const atHand = position ?? here;
+  const away = atHand && track.length > 0 ? distanceToTrack(atHand, track).meters : null;
+  const pins: MapReport[] = reports
+    .filter((r) => typeof r.lat === 'number' && typeof r.lon === 'number')
+    .map((r) => ({
+      id: r.id,
+      lat: r.lat!,
+      lon: r.lon!,
+      severity: reportSeverity(r.kind),
+    }));
 
   return (
-    <ScrollView contentContainerStyle={s.content}>
-      {offTrack && (
-        <View style={s.banner}>
+    <View style={s.screen}>
+      <TrackMap
+        track={track}
+        position={position}
+        offTrack={offTrack}
+        styleUrl={map?.styleUrl ?? null}
+        colours={c}
+        width={width}
+        height={height}
+        follow={navigating && !picking}
+        fitToken={fitToken}
+        centreToken={centreToken}
+        reports={pins}
+        // The bottom belongs to the panel sitting over the map, so the
+        // trail is framed above it rather than behind it.
+        fitPadding={{ top: insets.top + 70, right: 50, bottom: 300, left: 50 }}
+        picking={picking}
+        onPick={onPick}
+        pick={pick}
+      />
+
+      {/* Floating controls, over the map rather than beside it. */}
+      <View style={[s.topBar, { top: insets.top + sp.sm }]}>
+        <Pressable style={s.round} onPress={() => router.back()} accessibilityLabel="Volver">
+          <Text style={s.roundGlyph}>‹</Text>
+        </Pressable>
+        <View style={{ flex: 1 }} />
+        <Pressable
+          style={s.round}
+          onPress={() => setFitToken((t) => t + 1)}
+          accessibilityLabel="Ver el recorrido completo"
+        >
+          <Text style={s.roundLabel}>⤢</Text>
+        </Pressable>
+        <Pressable
+          style={[s.round, !position && s.roundOff]}
+          onPress={() => setCentreToken((t) => t + 1)}
+          disabled={!position}
+          accessibilityLabel="Centrar en mi posición"
+        >
+          <Text style={s.roundLabel}>◎</Text>
+        </Pressable>
+      </View>
+
+      {offTrack && !picking && (
+        <View style={[s.banner, { top: insets.top + 64 }]}>
           <Text style={s.bannerTitle}>Te alejaste del sendero</Text>
           <Text style={s.bannerText}>
             {Math.round(distance ?? 0)} m de la traza. Volvé sobre tus pasos.
@@ -250,181 +501,282 @@ export default function Hike() {
         </View>
       )}
 
-      <View style={s.canvasBox}>
-        <TrackMap
-          track={track}
-          position={position}
-          offTrack={offTrack}
-          styleUrl={styleUrl}
-          colours={c}
-          width={CANVAS.width}
-          height={CANVAS.height}
-          follow={navigating}
-          fitToken={fitToken}
-        />
-        <Pressable style={s.recentre} onPress={() => setFitToken((t) => t + 1)}>
-          <Text style={s.recentreText}>Ver el recorrido completo</Text>
-        </Pressable>
-      </View>
-
-      <View style={s.metrics}>
-        {[
-          [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
-          [`${(walked / 1000).toFixed(2)} km`, 'caminados', false],
-          [`${Math.round(((progress + 1) / track.length) * 100)} %`, 'del sendero', false],
-        ].map(([v, label, red]) => (
-          <View key={String(label)} style={s.metric}>
-            <Text style={[s.metricValue, red ? { color: c.danger } : null]}>{String(v)}</Text>
-            <Text style={s.metricLabel}>{String(label)}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={s.card}>
-        <Text style={s.cardText}>
-          Radio de tolerancia {TOLERANCE_RADIUS_M} m. La alerta abre tras tres lecturas seguidas
-          fuera y cierra tras tres dentro del setenta por ciento del radio.
-        </Text>
-        <Text style={s.counters}>
-          Lecturas procesadas {counters.readings} · consecutivas fuera {counters.outside} ·
-          consecutivas dentro {counters.inside}
-        </Text>
-      </View>
-
-      <Pressable
-        style={[s.startButton, navigating && s.stopButton]}
-        onPress={navigating ? stop : start}
-      >
-        <Text style={s.startButtonText}>
-          {navigating ? 'Finalizar sendero' : 'Iniciar sendero'}
-        </Text>
-      </Pressable>
-
-      <Text style={s.sourceDetail}>
-        {!navigating
-          ? 'El mapa muestra el sendero completo. Al iniciar, la vista te sigue mientras caminás.'
-          : replay
-            ? 'Recorrido simulado sobre la traza, con un apartamiento inducido.'
-            : accuracy !== null
-              ? `Siguiendo el receptor del dispositivo. Precisión ${Math.round(accuracy)} m.`
-              : 'Esperando la primera lectura del receptor.'}
-      </Text>
-
-      {!navigating && (
-        // A simulated walk is the only way to exercise the deviation alert
-        // without being on the mountain, so it stays available, out of the
-        // way of the thing the screen is actually for.
-        <View style={s.sourceRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.sourceDetail}>Simular el recorrido en lugar de usar el receptor</Text>
-          </View>
-          <Switch value={replay} onValueChange={setReplay} />
+      {saved && !picking && (
+        <View style={[s.toast, { top: insets.top + 64 }]}>
+          <Text style={s.toastText}>{saved}</Text>
         </View>
       )}
 
-      {permissionDenied && (
-        <Text style={s.permission}>
-          Sin permiso de ubicación no se puede usar el receptor. Activalo desde los ajustes del
-          teléfono.
-        </Text>
+      {/* Which map this is cannot be left implicit. A map drawn from the
+          network looks exactly like one that is on the phone, and the
+          difference only shows up where there is no signal to find out. */}
+      {map && !map.offline && !picking && (
+        <View style={[s.network, { top: insets.top + 56 }]}>
+          <Text style={s.networkText}>
+            Mapa en línea. Descargá la región para que siga estando sin señal.
+          </Text>
+        </View>
       )}
 
-      {!showReportKinds ? (
-        <Pressable style={s.button} onPress={() => setShowReportKinds(true)}>
-          <Text style={s.buttonText}>Reportar estado del camino</Text>
-        </Pressable>
-      ) : (
-        <View>
-          {REPORT_KINDS.map((k) => (
-            <Pressable key={k} style={s.reportOption} onPress={() => addReport(k)}>
-              <Text style={s.reportText}>{k}</Text>
+      {picking ? (
+        <View style={[s.panel, { paddingBottom: insets.bottom + sp.lg }]}>
+          <Text style={s.pickTitle}>Tocá el punto del sendero</Text>
+          <Text style={s.pickDetail}>
+            {pick
+              ? place.kind === 'onTrack'
+                ? `Marcado en el km ${(place.alongM / 1000).toFixed(2)} del sendero.`
+                : ''
+              : 'El aviso se guarda sobre la traza, en el punto más cercano a donde toques.'}
+          </Text>
+          <View style={s.pickActions}>
+            <Pressable
+              style={[s.primary, !pick && s.primaryOff]}
+              onPress={confirmPick}
+              disabled={!pick}
+            >
+              <Text style={s.primaryText}>Marcar acá</Text>
             </Pressable>
-          ))}
+            <Pressable style={s.quiet} onPress={cancelPick}>
+              <Text style={s.quietText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View style={[s.panel, { paddingBottom: insets.bottom + sp.lg }]}>
+          <View style={s.metrics}>
+            {[
+              [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
+              [`${(walked / 1000).toFixed(2)} km`, 'caminados', false],
+              [
+                `${Math.round(((progress + 1) / track.length) * 100)} %`,
+                `de ${(coveredM / 1000).toFixed(1)} km`,
+                false,
+              ],
+            ].map(([v, label, red]) => (
+              <View key={String(label)} style={s.metric}>
+                <Text style={[s.metricValue, red ? { color: c.danger } : null]}>{String(v)}</Text>
+                <Text style={s.metricLabel}>{String(label)}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Said before anybody tries, rather than as a refusal after.
+              Whoever is at home looking at a trail two hours away should
+              be able to read that here and not discover it by pressing. */}
+          {!navigating && !replay && away !== null && away > START_RADIUS_M && (
+            <Text style={s.away}>
+              Estás a {away >= 10_000 ? Math.round(away / 1000) : (away / 1000).toFixed(1)} km de
+              este sendero. Vas a poder iniciarlo cuando llegues.
+            </Text>
+          )}
+
+          <View style={s.row}>
+            <Pressable
+              style={[s.primary, navigating && { backgroundColor: c.danger }]}
+              onPress={navigating ? stop : () => void start()}
+            >
+              <Text style={s.primaryText}>
+                {navigating ? 'Finalizar sendero' : 'Iniciar sendero'}
+              </Text>
+            </Pressable>
+            <Pressable style={s.report} onPress={() => setSheetOpen(true)}>
+              <Text style={s.reportText}>Avisar</Text>
+            </Pressable>
+          </View>
+
+          <Pressable onPress={() => setDetail((d) => !d)} hitSlop={8}>
+            <Text style={s.toggle}>
+              {detail ? 'Ocultar el detalle técnico' : 'Ver el detalle técnico'}
+            </Text>
+          </Pressable>
+
+          {detail && (
+            <ScrollView style={s.detail} showsVerticalScrollIndicator={false}>
+              <Text style={s.detailText}>
+                Radio de tolerancia {TOLERANCE_RADIUS_M} m. La alerta abre tras tres lecturas
+                seguidas fuera y cierra tras tres dentro del setenta por ciento del radio.
+              </Text>
+              <Text style={s.counters}>
+                Lecturas {counters.readings} · consecutivas fuera {counters.outside} · dentro{' '}
+                {counters.inside}
+              </Text>
+              <Text style={s.detailText}>
+                {replay
+                  ? 'Recorrido simulado sobre la traza, con un apartamiento inducido.'
+                  : accuracy !== null
+                    ? `Receptor del dispositivo. Precisión ${Math.round(accuracy)} m.`
+                    : 'Esperando la primera lectura del receptor.'}
+              </Text>
+              {!navigating && (
+                <View style={s.switchRow}>
+                  <Text style={[s.detailText, { flex: 1 }]}>
+                    Simular el recorrido en lugar de usar el receptor
+                  </Text>
+                  <Switch value={replay} onValueChange={setReplay} />
+                </View>
+              )}
+              {permissionDenied && (
+                <Text style={s.permission}>
+                  Sin permiso de ubicación no se puede usar el receptor. Activalo desde los
+                  ajustes del teléfono.
+                </Text>
+              )}
+              <Text style={s.detailText}>
+                Todo el cálculo se ejecuta en el dispositivo y sin conexión.
+              </Text>
+            </ScrollView>
+          )}
         </View>
       )}
 
-      {reportsMade > 0 && (
-        <Text style={s.footer}>
-          {reportsMade} reporte{reportsMade === 1 ? '' : 's'} guardado
-          {reportsMade === 1 ? '' : 's'} y encolado{reportsMade === 1 ? '' : 's'} para sincronizar
-        </Text>
-      )}
-      <Text style={s.footer}>Todo el cálculo se ejecuta en el dispositivo y sin conexión</Text>
-    </ScrollView>
+      <ReportSheet
+        open={sheetOpen}
+        hasPosition={position !== null}
+        place={place}
+        onClose={() => setSheetOpen(false)}
+        onPickOnMap={() => {
+          setSheetOpen(false);
+          setPicking(true);
+        }}
+        onUseCurrentPosition={() => {
+          setPick(null);
+          setPlace({ kind: 'here' });
+        }}
+        onSave={saveTheReport}
+      />
+    </View>
   );
 }
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
+    screen: { flex: 1 },
     centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    banner: { backgroundColor: c.danger, borderRadius: 10, padding: sp.md, marginBottom: sp.md },
-    bannerTitle: { color: '#ffffff', fontWeight: '700', fontSize: 15 },
-    bannerText: { color: '#ffffff', fontSize: 13, marginTop: 2 },
-    canvasBox: {
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      alignItems: 'center',
-      paddingVertical: sp.sm,
-      marginBottom: sp.md,
-    },
-    recentre: { paddingTop: sp.sm, paddingHorizontal: sp.md },
-    startButton: {
-      backgroundColor: c.primary,
-      borderRadius: 10,
-      paddingVertical: sp.md,
-      alignItems: 'center',
-      marginBottom: sp.sm,
-    },
-    stopButton: { backgroundColor: c.danger },
-    startButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 15 },
-    recentreText: { color: c.primary, fontSize: 12, fontWeight: '700' },
-    canvasNote: {
-      fontSize: 11,
-      color: c.mutedText,
-      marginTop: sp.xs,
-      paddingHorizontal: sp.md,
-      textAlign: 'center',
-      lineHeight: 15,
-    },
-    metrics: { flexDirection: 'row', marginBottom: sp.md },
-    metric: { flex: 1, alignItems: 'center' },
-    metricValue: { fontSize: 18, fontWeight: '700', color: c.text },
-    metricLabel: { fontSize: 11, color: c.mutedText, marginTop: 2 },
-    card: {
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
-      marginBottom: sp.md,
-    },
-    cardText: { fontSize: 12, color: c.mutedText, lineHeight: 17 },
-    counters: { fontSize: 12, color: c.primary, marginTop: 6, fontWeight: '600' },
-    sourceRow: {
+
+    topBar: {
+      position: 'absolute',
+      left: sp.lg,
+      right: sp.lg,
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: sp.md,
-      backgroundColor: c.primarySoft,
-      borderRadius: 10,
-      padding: sp.md,
-      marginBottom: sp.md,
+      gap: sp.sm,
     },
-    sourceTitle: { fontWeight: '700', color: c.primary, fontSize: 13 },
-    sourceDetail: { color: c.mutedText, fontSize: 12, marginTop: 2, lineHeight: 17 },
-    permission: { color: c.danger, fontSize: 12, marginBottom: sp.md },
-    button: { backgroundColor: c.primary, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-    buttonText: { color: c.onPrimary, fontWeight: '700', fontSize: 14 },
-    reportOption: {
+    round: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor: c.surface,
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
-      marginBottom: sp.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
     },
-    reportText: { color: c.text, fontSize: 14, textAlign: 'center' },
-    footer: { textAlign: 'center', color: c.mutedText, fontSize: 11, marginTop: sp.sm },
+    roundOff: { opacity: 0.45 },
+    roundGlyph: { color: c.text, fontSize: 28, lineHeight: 30, marginTop: -4 },
+    roundLabel: { color: c.text, fontSize: 19 },
+
+    banner: {
+      position: 'absolute',
+      left: sp.lg,
+      right: sp.lg,
+      backgroundColor: c.danger,
+      borderRadius: 14,
+      padding: sp.md,
+    },
+    bannerTitle: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
+    bannerText: { color: '#ffffff', fontSize: 13, marginTop: 2 },
+
+    toast: {
+      position: 'absolute',
+      left: sp.lg,
+      right: sp.lg,
+      backgroundColor: c.surface,
+      borderRadius: 14,
+      padding: sp.md,
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
+    toastText: { color: c.text, fontSize: 13, lineHeight: 18 },
+
+    network: {
+      position: 'absolute',
+      left: sp.lg,
+      right: sp.lg,
+      backgroundColor: c.warningSoft,
+      borderRadius: 12,
+      paddingVertical: sp.sm,
+      paddingHorizontal: sp.md,
+    },
+    networkText: { color: c.warning, fontSize: 12, lineHeight: 17, fontWeight: '600' },
+
+    panel: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: c.background,
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      paddingHorizontal: sp.lg,
+      paddingTop: sp.lg,
+      maxHeight: '58%',
+    },
+
+    metrics: { flexDirection: 'row', marginBottom: sp.lg },
+    metric: { flex: 1, alignItems: 'center' },
+    metricValue: { fontSize: 22, fontWeight: '800', color: c.text },
+    metricLabel: { fontSize: 11.5, color: c.mutedText, marginTop: 2 },
+
+    row: { flexDirection: 'row', gap: sp.sm },
+    primary: {
+      flex: 1,
+      backgroundColor: c.primary,
+      borderRadius: 28,
+      paddingVertical: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    primaryOff: { opacity: 0.45 },
+    primaryText: { color: c.onPrimary, fontWeight: '800', fontSize: 16 },
+    report: {
+      borderColor: c.primary,
+      borderWidth: 1.5,
+      borderRadius: 28,
+      paddingVertical: 16,
+      paddingHorizontal: sp.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    reportText: { color: c.primary, fontWeight: '800', fontSize: 15 },
+
+    away: {
+      color: c.warning,
+      fontSize: 12.5,
+      lineHeight: 18,
+      marginBottom: sp.md,
+      fontWeight: '600',
+    },
+    toggle: {
+      color: c.mutedText,
+      fontSize: 12,
+      textAlign: 'center',
+      marginTop: sp.md,
+      fontWeight: '600',
+    },
+    detail: { marginTop: sp.sm },
+    detailText: { fontSize: 12, color: c.mutedText, lineHeight: 17, marginBottom: sp.xs },
+    counters: { fontSize: 12, color: c.primary, marginBottom: sp.sm, fontWeight: '600' },
+    switchRow: { flexDirection: 'row', alignItems: 'center', gap: sp.md, marginVertical: sp.sm },
+    permission: { color: c.danger, fontSize: 12, marginBottom: sp.sm },
+
+    pickTitle: { color: c.text, fontSize: 17, fontWeight: '800' },
+    pickDetail: { color: c.mutedText, fontSize: 12.5, lineHeight: 18, marginTop: sp.xs },
+    pickActions: { flexDirection: 'row', gap: sp.sm, marginTop: sp.lg, alignItems: 'center' },
+    quiet: { paddingVertical: 16, paddingHorizontal: sp.lg },
+    quietText: { color: c.mutedText, fontWeight: '700', fontSize: 15 },
   });

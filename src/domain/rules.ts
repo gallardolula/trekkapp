@@ -1,26 +1,29 @@
 /** Business rules engine.
  *
- *  Three rules, all pure and all executable without connectivity:
- *    1. whether a hiker may download a trail given the level they declared,
- *    2. whether their current position amounts to a deviation from the track,
- *    3. whether the trail's forecast represents a risk.
+ *  Four rules, all pure and all executable without connectivity:
+ *    1. whether a hiker may take on a trail given the level they declared,
+ *    2. whether they are close enough to the trail to be setting out on it,
+ *    3. whether their current position amounts to a deviation from the track,
+ *    4. whether the trail's forecast represents a risk.
  *
  *  Depending on neither the database nor the network, they can be tested in
  *  isolation and they behave in the field exactly as they do under test.
  */
+import { distanceToTrack } from './geo';
 import {
   DeviationState,
-  DownloadDecision,
+  AttemptDecision,
   Forecast,
   INITIAL_DEVIATION_STATE,
   Level,
   LEVEL_ORDER,
+  Point,
   Severity,
   TrailAttributes,
   WeatherAlert,
 } from './types';
 
-// ---------------------------------------------------------------- download --
+// ----------------------------------------------------------------- level --
 
 const LEVEL_LABEL: Record<Level, string> = {
   beginner: 'principiante',
@@ -29,16 +32,21 @@ const LEVEL_LABEL: Record<Level, string> = {
 };
 
 /**
- * Decides whether a hiker may download a trail.
+ * Decides whether somebody may take on a trail, given what they declared.
  *
- * The download is never blocked: the final call stays with the person. What
- * changes is that when the trail's difficulty exceeds the declared level, an
- * explicit confirmation is required instead of downloading silently.
+ * Never a refusal: the final call stays with the person, who knows things
+ * about themselves the application does not. What changes is that a trail
+ * harder than the level they declared asks for an explicit confirmation
+ * instead of letting them set out without one.
+ *
+ * This used to gate the download, which is why somebody could open a trail
+ * beyond their level, skip marking it, and start walking without ever
+ * being asked. The gate belongs on setting out.
  */
-export function evaluateDownload(
+export function evaluateAttempt(
   attributes: TrailAttributes,
   hikerLevel: Level,
-): DownloadDecision {
+): AttemptDecision {
   const gap = LEVEL_ORDER[attributes.difficulty] - LEVEL_ORDER[hikerLevel];
 
   if (gap <= 0) return { allowed: true, requiresConfirmation: false };
@@ -183,4 +191,68 @@ export function evaluateWeather(
   }
 
   return { severity, reasons, evaluatedAt: now.toISOString() };
+}
+
+// ----------------------------------------------------------- setting out --
+
+/**
+ * How far from the path somebody may be and still be setting out on it.
+ *
+ * Generous on purpose. A trailhead car park sits off the recorded line, an
+ * approach road runs parallel for a while, and a satellite fix under tree
+ * cover wanders. Two kilometres covers all of that and still rules out
+ * what this exists to rule out, which is starting a walk from a sofa in
+ * another city and having the application record it as a hike.
+ */
+export const START_RADIUS_M = 2000;
+
+export interface StartDecision {
+  allowed: boolean;
+  /** Metres to the nearest point of the track, when it could be measured. */
+  distanceM: number | null;
+  reason?: string;
+}
+
+/**
+ * Decides whether a walk can begin from where the hiker is standing.
+ *
+ * Unlike the level rule this one does refuse, and the difference is worth
+ * stating. The level rule weighs something the person knows better than
+ * the application does, so it asks. This one weighs a fact, which is
+ * whether they are at the trail, and a recording made from somewhere else
+ * is not a cautious decision but a wrong one: it would enter the history
+ * as a walk, count towards the distance they have covered, and anchor any
+ * report they wrote to a path they were never on.
+ *
+ * A null position is not a refusal. It means the receiver has not answered
+ * yet, which is ordinary in a valley and under trees, and the caller is
+ * expected to wait rather than to decide.
+ */
+export function evaluateStart(position: Point | null, track: Point[]): StartDecision {
+  if (track.length === 0) {
+    return { allowed: false, distanceM: null, reason: 'Este sendero no tiene traza descargada.' };
+  }
+  if (!position) {
+    return {
+      allowed: false,
+      distanceM: null,
+      reason: 'Todavía no hay lectura del receptor. Esperá a que el teléfono te ubique.',
+    };
+  }
+
+  const { meters } = distanceToTrack(position, track);
+  if (meters <= START_RADIUS_M) return { allowed: true, distanceM: meters };
+
+  const away =
+    meters >= 10_000
+      ? `${Math.round(meters / 1000)} km`
+      : `${(meters / 1000).toFixed(1)} km`;
+
+  return {
+    allowed: false,
+    distanceM: meters,
+    reason:
+      `Estás a ${away} del sendero. El recorrido se inicia cuando llegás, ` +
+      'para que lo que quede registrado sea lo que caminaste de verdad.',
+  };
 }

@@ -101,3 +101,59 @@ export function distanceToTrack(p: Point, track: Point[]): DistanceToTrackResult
   }
   return { meters: best, segmentIndex: index };
 }
+
+export interface AnchorOnTrack {
+  /** The point of the track closest to the one given. */
+  point: Point;
+  /** Index of the segment it falls on. */
+  segmentIndex: number;
+  /** How far the given point was from the track, in metres. */
+  offTrackM: number;
+  /** Distance from the start of the track to the anchor, in metres. */
+  alongM: number;
+}
+
+/**
+ * Snaps a point onto the track.
+ *
+ * A report is about a place on the path, not about wherever a thumb
+ * happened to land, so what gets stored is the nearest point of the track
+ * and not the tap. That is also what lets two people reporting the same
+ * washed out ford, from either bank, produce reports in the same place.
+ *
+ * `alongM` is what turns a coordinate into something a hiker can act on.
+ * Latitude and longitude tell them nothing on a trail; "at kilometre two
+ * and a half" tells them when to start paying attention.
+ */
+export function anchorOnTrack(p: Point, track: Point[]): AnchorOnTrack {
+  if (track.length === 0) throw new Error('The track cannot be empty');
+  if (track.length === 1) {
+    return { point: track[0]!, segmentIndex: 0, offTrackM: haversineDistance(p, track[0]!), alongM: 0 };
+  }
+
+  const { segmentIndex, meters } = distanceToTrack(p, track);
+  const a = track[segmentIndex]!;
+  const b = track[segmentIndex + 1]!;
+
+  // Where along this segment the projection falls, clamped to its ends, so
+  // the anchor is always on the path and never past either end of it.
+  const pp = toPlane(p, a);
+  const pb = toPlane(b, a);
+  const squaredLength = pb.x ** 2 + pb.y ** 2;
+  const t =
+    squaredLength === 0 ? 0 : Math.max(0, Math.min(1, (pp.x * pb.x + pp.y * pb.y) / squaredLength));
+
+  const point: Point = {
+    lat: a.lat + (b.lat - a.lat) * t,
+    lon: a.lon + (b.lon - a.lon) * t,
+    ...(typeof a.ele === 'number' && typeof b.ele === 'number'
+      ? { ele: a.ele + (b.ele - a.ele) * t }
+      : {}),
+  };
+
+  let alongM = 0;
+  for (let i = 0; i < segmentIndex; i++) alongM += haversineDistance(track[i]!, track[i + 1]!);
+  alongM += haversineDistance(a, point);
+
+  return { point, segmentIndex, offTrackM: meters, alongM };
+}

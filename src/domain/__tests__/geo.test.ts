@@ -1,4 +1,4 @@
-import { distanceToSegment, distanceToTrack, haversineDistance } from '../geo';
+import { anchorOnTrack, distanceToSegment, distanceToTrack, haversineDistance } from '../geo';
 import { Point } from '../types';
 
 /** One degree of latitude is about 111,320 m on any meridian. */
@@ -85,5 +85,50 @@ describe('distanceToTrack', () => {
 
   it('rejects an empty track', () => {
     expect(() => distanceToTrack({ lat: 0, lon: 0 }, [])).toThrow();
+  });
+});
+
+describe('anchoring a point on the track', () => {
+  // A straight run north, roughly a kilometre, with a point every 100 m.
+  const TRACK: Point[] = Array.from({ length: 11 }, (_, i) => ({
+    lat: -31.65 + i * 0.0009,
+    lon: -64.68,
+  }));
+
+  it('puts the anchor on the path, not where the thumb landed', () => {
+    const tapped = { lat: -31.6455, lon: -64.6795 };
+    const { point, offTrackM } = anchorOnTrack(tapped, TRACK);
+    expect(point.lon).toBeCloseTo(-64.68, 5);
+    expect(offTrackM).toBeGreaterThan(20);
+  });
+
+  it('says how far along the trail the anchor is', () => {
+    // Half way up a one kilometre track.
+    const { alongM } = anchorOnTrack({ lat: -31.6455, lon: -64.681 }, TRACK);
+    expect(alongM).toBeGreaterThan(440);
+    expect(alongM).toBeLessThan(560);
+  });
+
+  it('is zero along the trail at the start', () => {
+    expect(anchorOnTrack(TRACK[0]!, TRACK).alongM).toBeCloseTo(0, 1);
+  });
+
+  it('never goes past the end, however far beyond the tap is', () => {
+    const beyond = { lat: -31.6, lon: -64.68 };
+    const { point, alongM } = anchorOnTrack(beyond, TRACK);
+    expect(point.lat).toBeCloseTo(TRACK[10]!.lat, 6);
+    // The whole track is about a kilometre, and the anchor cannot exceed it.
+    expect(alongM).toBeLessThan(1100);
+  });
+
+  it('two people on opposite banks anchor to the same place', () => {
+    // The reason the anchor exists: one report, not two, about one ford.
+    const west = anchorOnTrack({ lat: -31.6455, lon: -64.6812 }, TRACK);
+    const east = anchorOnTrack({ lat: -31.6455, lon: -64.6788 }, TRACK);
+    expect(haversineDistance(west.point, east.point)).toBeLessThan(5);
+  });
+
+  it('refuses a track with nothing in it', () => {
+    expect(() => anchorOnTrack({ lat: -31.65, lon: -64.68 }, [])).toThrow();
   });
 });
