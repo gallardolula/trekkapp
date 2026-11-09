@@ -382,3 +382,42 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_photos_hike ON hike_photos(hike_id);
   `,
 ];
+
+/**
+ * Moves a trail, and everything hanging off it, onto another identifier.
+ *
+ * Needed when a trail the device created is accepted by the server, which
+ * assigns an identifier of its own: the row has to become that one, or the
+ * same path exists twice under two identities, reports written about it
+ * reference a trail the server has never heard of, and the next delta
+ * brings the server's copy down alongside the local one.
+ *
+ * A trail is a parent row and the foreign keys declare no ON UPDATE, so
+ * renaming it in place is refused. The row is copied under the new
+ * identifier, the children are pointed at the copy, and only then is the
+ * original deleted, by which time nothing refers to it and the cascade
+ * takes nothing. The same shape as the rewrite in migration v5.
+ *
+ * Returned as statements rather than executed here so the sequence can be
+ * exercised against real SQLite, which is the only way to catch a child
+ * table that was forgotten.
+ */
+export function retargetTrail(from: string, to: string): [string, unknown[]][] {
+  return [
+    [
+      `INSERT INTO trails (id, name, description, distance_m, elevation_gain_m,
+                           effort_index, difficulty, status, source,
+                           downloaded_at, created_at, updated_at)
+       SELECT ?, name, description, distance_m, elevation_gain_m, effort_index,
+              difficulty, 'published', source, downloaded_at, created_at, updated_at
+         FROM trails WHERE id = ?`,
+      [to, from],
+    ],
+    ['UPDATE track_points SET trail_id = ? WHERE trail_id = ?', [to, from]],
+    ['UPDATE reports SET trail_id = ? WHERE trail_id = ?', [to, from]],
+    ['UPDATE forecasts SET trail_id = ? WHERE trail_id = ?', [to, from]],
+    ['UPDATE issued_alerts SET trail_id = ? WHERE trail_id = ?', [to, from]],
+    ['UPDATE hikes SET trail_id = ? WHERE trail_id = ?', [to, from]],
+    ['DELETE FROM trails WHERE id = ?', [from]],
+  ];
+}
