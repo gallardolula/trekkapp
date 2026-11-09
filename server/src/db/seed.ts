@@ -11,12 +11,12 @@
  *  Usage: npm run seed
  */
 import { computeAttributes } from '../../../src/domain/trail';
-import { densify, SEED_TRAILS } from '../../../src/startup/seed';
+import { SEED_TRAILS } from '../../../src/startup/seed';
 import { pool, withTransaction } from './pool';
 
 async function run(): Promise<void> {
   for (const trail of SEED_TRAILS) {
-    const points = densify(trail.waypoints);
+    const points = trail.points;
     // Derived here from the geometry, as for any other trail. The server
     // does not take these from anywhere, not even from its own seed.
     const attributes = computeAttributes(points);

@@ -25,9 +25,15 @@ import { PNG } from 'pngjs';
 import vtpbf from 'vt-pbf';
 
 import { buildContours, isIndex, longEnough, toGeographic, type HeightGrid } from './contours';
-
-/** Where the heights come from. Public, no credentials, no rate limit. */
-const TERRAIN = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
+import {
+  cacheDir,
+  decodeHeight,
+  fetchTerrainTile,
+  latToY,
+  lonToX,
+  xToLon,
+  yToLat,
+} from './terrain';
 
 /**
  * Zoom the elevation is read at.
@@ -54,59 +60,6 @@ interface RegionDefinition {
 }
 
 // ------------------------------------------------------------- the grid --
-
-const lonToX = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z;
-
-function latToY(lat: number, z: number): number {
-  const r = (lat * Math.PI) / 180;
-  return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z;
-}
-
-const xToLon = (x: number, z: number) => (x / 2 ** z) * 360 - 180;
-
-function yToLat(y: number, z: number): number {
-  const n = Math.PI - (2 * Math.PI * y) / 2 ** z;
-  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-}
-
-/**
- * Where downloaded terrain tiles are kept between runs.
- *
- * A region is the better part of a thousand tiles, and changing the
- * contour interval or fixing the tracing means running this again. Without
- * a cache every such run downloads the same tens of megabytes of ground
- * that has not moved. Safe to delete at any time.
- */
-const cacheDir = (tilesDir: string) => join(tilesDir, '..', 'cache', 'terrarium');
-
-/** Fetches one terrain tile, retrying, because this makes hundreds of them. */
-async function fetchTile(
-  cache: string,
-  z: number,
-  x: number,
-  y: number,
-): Promise<Buffer | null> {
-  const path = join(cache, String(z), String(x), `${y}.png`);
-  if (existsSync(path)) return readFileSync(path);
-
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      const response = await fetch(`${TERRAIN}/${z}/${x}/${y}.png`);
-      // Outside the coverage of the dataset, which over the ocean is normal.
-      if (response.status === 404 || response.status === 403) return null;
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const body = Buffer.from(await response.arrayBuffer());
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, body);
-      return body;
-    } catch (error) {
-      if (attempt === 3) throw error;
-      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
-    }
-  }
-  return null;
-}
 
 /**
  * Downloads the elevation covering a region into one grid.
@@ -137,7 +90,7 @@ async function loadGrid(region: RegionDefinition, cache: string): Promise<Height
   // the connection busy without opening hundreds of sockets at once.
   for (let ty = y0; ty <= y1; ty++) {
     const row = await Promise.all(
-      Array.from({ length: across }, (_, i) => fetchTile(cache, z, x0 + i, ty)),
+      Array.from({ length: across }, (_, i) => fetchTerrainTile(cache, z, x0 + i, ty)),
     );
 
     row.forEach((png, i) => {

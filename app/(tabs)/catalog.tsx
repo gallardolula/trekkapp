@@ -12,6 +12,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 
 import { listTrails, newId, readProfile, saveTrail, TrailSummary } from '../../src/data/db';
+import { CATALOGUE_ATTRIBUTION } from '../../src/startup/seed';
 import { InvalidGpxError, parseGpx } from '../../src/data/gpx';
 import { Level, LEVEL_ORDER } from '../../src/domain/types';
 import { prepareStorage } from '../../src/startup/storage';
@@ -124,6 +125,12 @@ export default function Catalog() {
       </Pressable>
       {importMessage && <Text style={s.importMessage}>{importMessage}</Text>}
 
+      {/* The licence of the data requires this wherever the catalogue is
+          shown, and it is also the honest label: these lines were drawn by
+          people who walked them, and nobody on this project has checked
+          them on the ground. */}
+      <Text style={s.attribution}>{CATALOGUE_ATTRIBUTION}</Text>
+
       {trails.map((t) => {
         const exceeds =
           level !== null && LEVEL_ORDER[t.attributes.difficulty] > LEVEL_ORDER[level];
@@ -154,6 +161,7 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
     title: { fontSize: 32, fontWeight: '800', color: c.text, marginBottom: sp.lg },
+    attribution: { color: c.mutedText, fontSize: 11, lineHeight: 16, marginBottom: sp.md },
     centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     import: {
       borderColor: c.primary,
