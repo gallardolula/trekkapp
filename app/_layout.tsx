@@ -1,27 +1,48 @@
+/** The navigator the whole application hangs from.
+ *
+ *  Two kinds of screen. The tab bar holds the four sections somebody moves
+ *  between all the time, and the stack holds what is entered from one of
+ *  them and then left: a trail, a walk under way, signing in. Those carry a
+ *  header with a way back; the sections do not, because each one writes its
+ *  own title and there is nowhere to go back to.
+ */
 import { Stack } from 'expo-router';
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 
+import { ConnectivityProvider } from '../src/data/connectivity';
+import { syncOnForeground } from '../src/sync/auto';
 import { ThemeProvider, useTheme } from '../src/ui/theme';
 
 function Navigation() {
-  const { c } = useTheme();
+  const { c, mode } = useTheme();
+
+  // Synchronising whenever the application comes to the front, which it
+  // only does while somebody is holding the phone and looking at it. The
+  // module refuses during a walk and when the server does not answer, so
+  // this is one subscription and no polling. See src/sync/auto.ts.
+  useEffect(() => syncOnForeground(), []);
+
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: c.primary },
-          headerTintColor: c.onPrimary,
+          headerStyle: { backgroundColor: c.background },
+          headerTintColor: c.text,
           headerTitleStyle: { fontWeight: '700' },
+          headerShadowVisible: false,
           contentStyle: { backgroundColor: c.background },
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'TrekkApp' }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ title: 'Crear cuenta' }} />
-        <Stack.Screen name="catalog" options={{ title: 'Senderos' }} />
-        <Stack.Screen name="profile" options={{ title: 'Tu perfil' }} />
+        <Stack.Screen name="signin" options={{ title: 'Iniciar sesión' }} />
         <Stack.Screen name="trail/[id]" options={{ title: 'Sendero' }} />
-        <Stack.Screen name="hike/[id]" options={{ title: 'Recorrido' }} />
+        {/* Full screen map, with its own floating controls over it. */}
+        <Stack.Screen name="hike/[id]" options={{ headerShown: false }} />
       </Stack>
     </>
   );
@@ -30,7 +51,9 @@ function Navigation() {
 export default function Layout() {
   return (
     <ThemeProvider>
-      <Navigation />
+      <ConnectivityProvider>
+        <Navigation />
+      </ConnectivityProvider>
     </ThemeProvider>
   );
 }

@@ -1,22 +1,24 @@
-/** Authentication and authorisation for routes.
+/** Authentication for routes.
  *
- *  Exposes two guards as Fastify decorators. `authenticate` establishes who
- *  is calling. `requireModerator` additionally checks the role, and is the
- *  single place where that check lives, so a moderation route cannot be
- *  added without it.
+ *  Exposes one guard as a Fastify decorator. `authenticate` establishes who
+ *  is calling, and that is the whole of it: there is a single kind of
+ *  account, so there is nothing to authorise beyond being signed in.
+ *
+ *  It used to expose a second guard for the moderator role. That went with
+ *  the review queue, which no person could work and which promised a
+ *  verification it had no way to perform.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { readAccessToken, type Role } from '../auth/tokens';
+import { readAccessToken } from '../auth/tokens';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; role: Role };
+    user?: { id: string };
   }
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-    requireModerator: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -40,24 +42,7 @@ async function plugin(app: FastifyInstance): Promise<void> {
       await reply.code(401).send({ error: 'unauthenticated' });
       return;
     }
-    request.user = { id: claims.userId, role: claims.role };
-  });
-
-  // Not delegating to `authenticate` here: knowing whether that guard
-  // already answered would mean inspecting the reply, and Fastify 5 no
-  // longer exposes that. Resolving the token once is clearer anyway.
-  app.decorate('requireModerator', async (request: FastifyRequest, reply: FastifyReply) => {
-    const token = bearer(request);
-    const claims = token ? await readAccessToken(token) : null;
-    if (!claims) {
-      await reply.code(401).send({ error: 'unauthenticated' });
-      return;
-    }
-    if (claims.role !== 'moderator') {
-      await reply.code(403).send({ error: 'forbidden' });
-      return;
-    }
-    request.user = { id: claims.userId, role: claims.role };
+    request.user = { id: claims.userId };
   });
 }
 

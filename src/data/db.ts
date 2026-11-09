@@ -6,9 +6,10 @@
  */
 import * as SQLite from 'expo-sqlite';
 
+import { uuidFromHex } from '../domain/identity';
 import { computeAttributes } from '../domain/trail';
 import { Forecast, Level, Point, Trail, TrailStatus } from '../domain/types';
-import { MIGRATIONS } from './schema';
+import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP } from './schema';
 
 // The file name changed when the schema moved to English identifiers, so a
 // device holding the previous one starts from a clean database instead of
@@ -47,6 +48,22 @@ export async function closeDatabase(): Promise<void> {
 }
 
 const now = () => new Date().toISOString();
+
+/**
+ * A fresh identifier for something created on the device.
+ *
+ * The random bytes come from SQLite, which seeds its generator from the
+ * operating system. React Native exposes no web crypto, so the alternative
+ * would have been `Math.random`, and the whole idempotency of the upload
+ * rests on these not colliding between devices.
+ */
+export async function newId(): Promise<string> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ bytes: string }>(
+    'SELECT hex(randomblob(16)) AS bytes',
+  );
+  return uuidFromHex(row!.bytes);
+}
 
 // ---------------------------------------------------------------- profile --
 
@@ -163,9 +180,12 @@ export async function saveTrail(input: {
 }): Promise<TrailSummary> {
   const db = await openDatabase();
   const attributes = computeAttributes(input.points);
-  // A route contributed by a hiker arrives pending review.
-  const status =
-    input.status ?? (input.source === 'imported' ? 'pending_review' : 'published');
+  // A trail imported from a file exists only on this phone until it is
+  // contributed. It used to be stored as pending review, which described a
+  // queue that no longer exists and that it was never in to begin with,
+  // since nothing ever sent it anywhere.
+  const status: TrailStatus =
+    input.status ?? (input.source === 'imported' ? 'local' : 'published');
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
@@ -228,6 +248,35 @@ export async function listTrails(): Promise<TrailSummary[]> {
 }
 
 /** Loads the full track. Called when opening a trail, never when listing. */
+/**
+ * A coarse version of a track, for drawing it small.
+ *
+ * The home screen draws one of these per card, and a trail holds thousands
+ * of points. Reading them all to turn them into a shape a few centimetres
+ * wide would make the list stutter for detail nobody can see at that size,
+ * so the thinning is done by the database and not after the fact.
+ */
+export async function readTrackShape(trailId: string, atMost = 120): Promise<Point[]> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM track_points WHERE trail_id = ?',
+    trailId,
+  );
+  const total = row?.n ?? 0;
+  if (total === 0) return [];
+
+  const step = Math.max(1, Math.ceil(total / atMost));
+  const rows = await db.getAllAsync<{ lat: number; lon: number; ele: number | null }>(
+    `SELECT lat, lon, ele FROM track_points
+      WHERE trail_id = ? AND (position % ? = 0 OR position = ?)
+      ORDER BY position`,
+    trailId,
+    step,
+    total - 1,
+  );
+  return rows.map((r) => ({ lat: r.lat, lon: r.lon, ...(r.ele !== null ? { ele: r.ele } : {}) }));
+}
+
 export async function readTrackPoints(trailId: string): Promise<Point[]> {
   const db = await openDatabase();
   const rows = await db.getAllAsync<{
@@ -253,7 +302,6 @@ export async function markDownloaded(trailId: string): Promise<void> {
 // ---------------------------------------------------------------- reports --
 
 export interface NewReport {
-  id: string;
   trailId: string;
   kind: string;
   comment?: string;
@@ -266,16 +314,20 @@ export interface NewReport {
  *
  * Making both writes atomic is what guarantees that no report is left stored
  * but never sent, nor a queue entry left without its report.
+ *
+ * The identifier is assigned here rather than by the caller, so that every
+ * report carries one the server can store whatever screen wrote it.
  */
-export async function saveReport(r: NewReport): Promise<void> {
+export async function saveReport(r: NewReport): Promise<string> {
   const db = await openDatabase();
   const createdAt = now();
+  const id = await newId();
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `INSERT INTO reports (id, trail_id, kind, comment, lat, lon, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      r.id,
+      id,
       r.trailId,
       r.kind,
       r.comment ?? null,
@@ -287,10 +339,12 @@ export async function saveReport(r: NewReport): Promise<void> {
       `INSERT INTO sync_queue (entity, entity_id, operation, created_at)
        VALUES ('report', ?, 'create', ?)
        ON CONFLICT (entity, entity_id, operation) DO NOTHING`,
-      r.id,
+      id,
       createdAt,
     );
   });
+
+  return id;
 }
 
 export async function countPendingSync(): Promise<number> {
@@ -400,6 +454,36 @@ export async function saveSyncState(key: string, value: string): Promise<void> {
 export async function saveUserId(userId: string): Promise<void> {
   const db = await openDatabase();
   await db.runAsync('UPDATE profile SET user_id = ?, updated_at = ? WHERE id = 1', userId, now());
+}
+
+/**
+ * Makes an account the one this device belongs to.
+ *
+ * Called when signing in, which is the one moment the device can find
+ * itself holding somebody else's data. If the account that was here before
+ * is a different one, what belonged to it is cleared before the new profile
+ * is written, because an unsent report left in the queue would otherwise
+ * travel up under the new account's name.
+ *
+ * Returns whether anything was cleared, so the screen can say so rather
+ * than leaving the hiker to notice that their walks are gone.
+ */
+export async function adoptAccount(account: {
+  userId: string;
+  name: string;
+  email: string;
+  level: Level;
+}): Promise<{ replaced: boolean }> {
+  const db = await openDatabase();
+  const previous = await readUserId();
+  const replaced = previous !== null && previous !== account.userId;
+
+  if (replaced) await db.execAsync(PREVIOUS_ACCOUNT_CLEANUP);
+
+  await saveProfile({ name: account.name, email: account.email, level: account.level });
+  await saveUserId(account.userId);
+
+  return { replaced };
 }
 
 export async function readUserId(): Promise<string | null> {
@@ -629,6 +713,9 @@ export interface StoredReport {
   trailId: string;
   kind: string;
   comment?: string;
+  /** Where on the path it was left. Absent on reports made before this. */
+  lat?: number;
+  lon?: number;
   createdAt: string;
   pending: boolean;
 }
@@ -641,10 +728,12 @@ export async function listTrailReports(trailId: string, limit = 20): Promise<Sto
     trail_id: string;
     kind: string;
     comment: string | null;
+    lat: number | null;
+    lon: number | null;
     created_at: string;
     synchronised_at: string | null;
   }>(
-    `SELECT id, trail_id, kind, comment, created_at, synchronised_at
+    `SELECT id, trail_id, kind, comment, lat, lon, created_at, synchronised_at
        FROM reports WHERE trail_id = ? ORDER BY created_at DESC LIMIT ?`,
     trailId,
     limit,
@@ -656,6 +745,8 @@ export async function listTrailReports(trailId: string, limit = 20): Promise<Sto
     createdAt: r.created_at,
     pending: r.synchronised_at === null,
     ...(r.comment !== null ? { comment: r.comment } : {}),
+    ...(r.lat !== null ? { lat: r.lat } : {}),
+    ...(r.lon !== null ? { lon: r.lon } : {}),
   }));
 }
 
@@ -664,7 +755,7 @@ export async function listTrailReports(trailId: string, limit = 20): Promise<Sto
 /** Starts recording a walk and returns its identifier. */
 export async function startHike(trailId: string): Promise<string> {
   const db = await openDatabase();
-  const id = `hike-${Date.now()}`;
+  const id = await newId();
   await db.runAsync(
     'INSERT INTO hikes (id, trail_id, started_at) VALUES (?, ?, ?)',
     id,
@@ -698,11 +789,26 @@ export async function appendHikePoint(
   );
 }
 
+/**
+ * Closes a recorded walk.
+ *
+ * A walk with no position readings is discarded rather than stored. It
+ * means the hiker opened the screen and left, or the receiver never
+ * reported, and neither is something worth keeping in a history.
+ */
 export async function finishHike(
   hikeId: string,
   summary: { distanceM: number; deviations: number },
 ): Promise<void> {
   const db = await openDatabase();
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM hike_points WHERE hike_id = ?',
+    hikeId,
+  );
+  if ((row?.n ?? 0) === 0) {
+    await db.runAsync('DELETE FROM hikes WHERE id = ?', hikeId);
+    return;
+  }
   await db.runAsync(
     'UPDATE hikes SET finished_at = ?, distance_m = ?, deviations = ? WHERE id = ?',
     now(),
@@ -710,6 +816,22 @@ export async function finishHike(
     summary.deviations,
     hikeId,
   );
+}
+
+/**
+ * Removes walks that recorded nothing.
+ *
+ * Earlier versions opened a recording when the screen opened rather than
+ * when the hiker started, so merely looking at a trail left an empty row
+ * behind. This clears those and anything the application failed to close.
+ */
+export async function discardEmptyHikes(): Promise<number> {
+  const db = await openDatabase();
+  const result = await db.runAsync(
+    `DELETE FROM hikes
+      WHERE id NOT IN (SELECT DISTINCT hike_id FROM hike_points)`,
+  );
+  return result.changes;
 }
 
 export interface HikeSummary {
@@ -757,6 +879,25 @@ export async function listHikes(limit = 30): Promise<HikeSummary[]> {
   }));
 }
 
+/**
+ * Removes one walk from the history.
+ *
+ * The hiker's own record is theirs to curate. Earlier versions recorded
+ * a simulated walk the moment the screen opened, so a history can hold
+ * entries nobody chose to make, and those cannot be told apart from real
+ * ones by looking at the data.
+ */
+export async function deleteHike(hikeId: string): Promise<void> {
+  const db = await openDatabase();
+  // The points go with it through the foreign key, but only when the
+  // constraint is enforced, and it is cheaper to be explicit than to
+  // depend on a pragma set elsewhere.
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM hike_points WHERE hike_id = ?', hikeId);
+    await db.runAsync('DELETE FROM hikes WHERE id = ?', hikeId);
+  });
+}
+
 /** The recorded path of one walk, for showing it over the trail. */
 export async function readHikePoints(hikeId: string): Promise<Point[]> {
   const db = await openDatabase();
@@ -770,4 +911,128 @@ export async function readHikePoints(hikeId: string): Promise<Point[]> {
     ...(r.ele !== null ? { ele: r.ele } : {}),
     time: r.time,
   }));
+}
+
+/**
+ * Removes preloaded trails the application no longer ships.
+ *
+ * Seeding alone only ever adds, so a device that has been through several
+ * versions accumulates every catalogue it was ever installed with. Only
+ * preloaded rows are touched: a trail somebody imported is theirs, and one
+ * the server sent arrives again on the next delta.
+ */
+export async function forgetPreloadedExcept(keep: string[]): Promise<void> {
+  const db = await openDatabase();
+  if (keep.length === 0) return;
+  const marks = keep.map(() => '?').join(',');
+  await db.runAsync(
+    `DELETE FROM trails WHERE source = 'preloaded' AND id NOT IN (${marks})`,
+    ...keep,
+  );
+}
+
+// ----------------------------------------------------------------- photos --
+
+export interface HikePhoto {
+  id: string;
+  hikeId: string;
+  uri: string;
+  lat?: number;
+  lon?: number;
+  takenAt: string;
+  note?: string;
+}
+
+/**
+ * Records a photograph taken during a walk.
+ *
+ * The file has already been copied into the application's own directory
+ * by the caller; what is stored here is where it went. A photograph is a
+ * megabyte or two and a database row is not where that belongs.
+ */
+export async function savePhoto(photo: {
+  hikeId: string;
+  uri: string;
+  lat?: number;
+  lon?: number;
+  note?: string;
+}): Promise<string> {
+  const db = await openDatabase();
+  const id = await newId();
+  await db.runAsync(
+    `INSERT INTO hike_photos (id, hike_id, uri, lat, lon, taken_at, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    photo.hikeId,
+    photo.uri,
+    photo.lat ?? null,
+    photo.lon ?? null,
+    now(),
+    photo.note ?? null,
+  );
+  return id;
+}
+
+export async function listPhotos(hikeId: string): Promise<HikePhoto[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{
+    id: string;
+    hike_id: string;
+    uri: string;
+    lat: number | null;
+    lon: number | null;
+    taken_at: string;
+    note: string | null;
+  }>('SELECT * FROM hike_photos WHERE hike_id = ? ORDER BY taken_at', hikeId);
+
+  return rows.map((r) => ({
+    id: r.id,
+    hikeId: r.hike_id,
+    uri: r.uri,
+    takenAt: r.taken_at,
+    ...(r.lat !== null ? { lat: r.lat } : {}),
+    ...(r.lon !== null ? { lon: r.lon } : {}),
+    ...(r.note !== null ? { note: r.note } : {}),
+  }));
+}
+
+/** How many photographs each of these walks holds, for the history list. */
+export async function countPhotos(hikeIds: string[]): Promise<Record<string, number>> {
+  if (hikeIds.length === 0) return {};
+  const db = await openDatabase();
+  const marks = hikeIds.map(() => '?').join(',');
+  const rows = await db.getAllAsync<{ hike_id: string; n: number }>(
+    `SELECT hike_id, COUNT(*) AS n FROM hike_photos
+      WHERE hike_id IN (${marks}) GROUP BY hike_id`,
+    ...hikeIds,
+  );
+  return Object.fromEntries(rows.map((r) => [r.hike_id, r.n]));
+}
+
+/**
+ * Forgets a photograph, returning the file so the caller can delete it.
+ *
+ * The row and the file are two things and only one of them is in a
+ * transaction. The row goes first: a file with no row is wasted space, and
+ * a row with no file is a gallery with a hole in it.
+ */
+export async function forgetPhoto(photoId: string): Promise<string | null> {
+  const db = await openDatabase();
+  const row = await db.getFirstAsync<{ uri: string }>(
+    'SELECT uri FROM hike_photos WHERE id = ?',
+    photoId,
+  );
+  if (!row) return null;
+  await db.runAsync('DELETE FROM hike_photos WHERE id = ?', photoId);
+  return row.uri;
+}
+
+/** The files of a walk, so they can be deleted along with it. */
+export async function photoFilesOf(hikeId: string): Promise<string[]> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{ uri: string }>(
+    'SELECT uri FROM hike_photos WHERE hike_id = ?',
+    hikeId,
+  );
+  return rows.map((r) => r.uri);
 }

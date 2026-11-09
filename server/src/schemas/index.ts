@@ -58,11 +58,6 @@ export const trailSubmissionSchema = z.object({
   points: z.array(pointSchema).min(2).max(50_000),
 });
 
-export const reviewSchema = z.object({
-  decision: z.enum(['published', 'rejected']),
-  note: z.string().trim().max(500).optional(),
-});
-
 /** Delta cursor. Absent on a first synchronisation, which returns everything. */
 export const deltaQuerySchema = z.object({
   since: z.iso.datetime({ offset: true }).optional(),
@@ -83,9 +78,17 @@ export const reportSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
 });
 
-/** Reports travel in batches, because a hike produces several at once. */
+/**
+ * Reports travel in batches, because a hike produces several at once.
+ *
+ * Only the envelope is validated here. Each report is then checked on its
+ * own, so one malformed row is answered as a rejection of that row instead
+ * of a refusal of the batch. The device keeps an unsent report queued until
+ * the server names it, and a batch-wide refusal left an unsendable report
+ * blocking every later synchronisation, the catalogue included.
+ */
 export const reportBatchSchema = z.object({
-  reports: z.array(reportSchema).min(1).max(100),
+  reports: z.array(z.unknown()).min(1).max(100),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

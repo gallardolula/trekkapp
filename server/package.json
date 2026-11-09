@@ -10,7 +10,9 @@
     "start": "node --env-file=.env dist/server/src/index.js",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
     "test": "jest",
-    "seed": "tsx --env-file=.env src/db/seed.ts"
+    "seed": "tsx --env-file=.env src/db/seed.ts",
+    "contours": "tsx --env-file=.env src/tiles/make-contours.ts",
+    "catalogue": "tsx --env-file=.env src/trails/make-catalogue.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
@@ -21,12 +23,17 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.16",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.6.2",
     "@types/pg": "^8.15.5",
+    "@types/pngjs": "^6.0.5",
+    "geojson-vt": "^5.0.4",
     "jest": "^30.5.2",
+    "pngjs": "^7.0.0",
     "ts-jest": "^29.4.12",
     "tsx": "^4.20.6",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vt-pbf": "^3.1.3"
   }
 }

@@ -13,7 +13,6 @@ import {
   revokeAllSessions,
   rotateRefreshToken,
   signAccessToken,
-  type Role,
 } from '../auth/tokens';
 import { pool, withTransaction } from '../db/pool';
 import { profileUpdateSchema, refreshSchema, registerSchema, sessionSchema } from '../schemas';
@@ -28,7 +27,6 @@ interface UserRow {
   password_hash: string;
   name: string;
   level: Level;
-  role: Role;
   failed_attempts: number;
   locked_until: Date | null;
 }
@@ -52,10 +50,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const result = await withTransaction(async (client) => {
-        const { rows } = await client.query<{ id: string; role: Role }>(
+        const { rows } = await client.query<{ id: string }>(
           `INSERT INTO users (email, password_hash, name, level)
            VALUES ($1, $2, $3, $4)
-           RETURNING id, role`,
+           RETURNING id`,
           [email, passwordHash, name, level],
         );
         const user = rows[0]!;
@@ -63,13 +61,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return { user, refresh };
       });
 
-      const accessToken = await signAccessToken({
-        userId: result.user.id,
-        role: result.user.role,
-      });
+      const accessToken = await signAccessToken({ userId: result.user.id });
 
       return reply.code(201).send({
-        user: { id: result.user.id, name, email, level, role: result.user.role },
+        user: { id: result.user.id, name, email, level },
         accessToken,
         refreshToken: result.refresh.token,
       });
@@ -97,6 +92,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     );
     const user = rows[0];
 
+    // Before the password, and not after. Verified afterwards, the lock
+    // stopped nobody: every guess was still checked against the hash, the
+    // counter was raised again on each one, and the only person who ever
+    // saw the lock was the owner arriving with the right password. Which
+    // means it does reveal that an address is registered, and that is the
+    // accepted cost of telling somebody who mistyped why they cannot get
+    // in and for how long.
+    if (user?.locked_until && user.locked_until.getTime() > Date.now()) {
+      return reply
+        .code(423)
+        .send({ error: 'account_locked', until: user.locked_until.toISOString() });
+    }
+
     // The password is verified even when no account matches, so that the
     // response time does not reveal which addresses are registered.
     const stored = user?.password_hash ?? (await hashPassword('placeholder-for-timing'));
@@ -107,19 +115,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: 'invalid_credentials' });
     }
 
-    if (user.locked_until && user.locked_until.getTime() > Date.now()) {
-      return reply
-        .code(423)
-        .send({ error: 'account_locked', until: user.locked_until.toISOString() });
-    }
-
     await pool.query(
       'UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1',
       [user.id],
     );
 
     const refresh = await issueRefreshToken(user.id);
-    const accessToken = await signAccessToken({ userId: user.id, role: user.role });
+    const accessToken = await signAccessToken({ userId: user.id });
 
     return reply.send({
       user: {
@@ -127,7 +129,6 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         name: user.name,
         email: user.email,
         level: user.level,
-        role: user.role,
       },
       accessToken,
       refreshToken: refresh.token,
@@ -161,7 +162,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/auth/me', { preHandler: [app.authenticate] }, async (request, reply) => {
     const { rows } = await pool.query<UserRow>(
-      'SELECT id, email, name, level, role FROM users WHERE id = $1',
+      'SELECT id, email, name, level FROM users WHERE id = $1',
       [request.user!.id],
     );
     const user = rows[0];
@@ -171,7 +172,6 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       name: user.name,
       email: user.email,
       level: user.level,
-      role: user.role,
     });
   });
 
@@ -187,7 +187,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           SET name = COALESCE($2, name),
               level = COALESCE($3, level)
         WHERE id = $1
-        RETURNING id, email, name, level, role`,
+        RETURNING id, email, name, level`,
       [request.user!.id, parsed.data.name ?? null, parsed.data.level ?? null],
     );
     const user = rows[0]!;
@@ -196,7 +196,6 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       name: user.name,
       email: user.email,
       level: user.level,
-      role: user.role,
     });
   });
 }

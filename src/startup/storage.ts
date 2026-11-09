@@ -4,8 +4,14 @@
  *  catalogue the first time. Loading is idempotent, so restarting the
  *  application neither duplicates trails nor overwrites imported ones.
  */
-import { listTrails, openDatabase, saveTrail } from '../data/db';
-import { densify, SEED_TRAILS } from './seed';
+import {
+  discardEmptyHikes,
+  forgetPreloadedExcept,
+  listTrails,
+  openDatabase,
+  saveTrail,
+} from '../data/db';
+import { SEED_TRAILS } from './seed';
 
 let preparation: Promise<void> | null = null;
 
@@ -20,10 +26,22 @@ async function prepareOnce(): Promise<void> {
       id: t.id,
       name: t.name,
       description: t.description,
-      points: densify(t.waypoints),
+      points: t.points,
       source: 'preloaded',
     });
   }
+
+  // A trail the catalogue no longer ships is removed. Updating the
+  // application would otherwise leave the device holding whatever shipped
+  // with every version it ever had, including the four written by hand
+  // that this replaced. What somebody imported is theirs and is left
+  // alone, and what the server sent arrives again on the next delta.
+  await forgetPreloadedExcept(SEED_TRAILS.map((t) => t.id));
+
+  // Walks that recorded nothing. Earlier versions opened a recording when
+  // the screen opened rather than when the hiker started, so looking at a
+  // trail left a row behind every time.
+  await discardEmptyHikes();
 }
 
 /** Ensures the database is ready. Safe to call as often as needed. */

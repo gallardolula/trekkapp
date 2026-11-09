@@ -16,18 +16,19 @@ import type { PoolClient } from 'pg';
 import { config } from '../config';
 import { pool } from '../db/pool';
 
-export type Role = 'hiker' | 'moderator';
-
+// There is one kind of account. The moderator role was removed together
+// with the review queue it existed for, because a contributed trail is now
+// validated by the system and published or refused. See
+// trails/validation.ts for what the checks can and cannot establish.
 export interface AccessClaims {
   userId: string;
-  role: Role;
 }
 
 const key = new TextEncoder().encode(config.jwtSecret);
 const ISSUER = 'trekkapp';
 
 export async function signAccessToken(claims: AccessClaims): Promise<string> {
-  return new SignJWT({ role: claims.role })
+  return new SignJWT({})
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(claims.userId)
     .setIssuer(ISSUER)
@@ -40,9 +41,8 @@ export async function signAccessToken(claims: AccessClaims): Promise<string> {
 export async function readAccessToken(token: string): Promise<AccessClaims | null> {
   try {
     const { payload } = await jwtVerify(token, key, { issuer: ISSUER });
-    const role = payload['role'];
-    if (!payload.sub || (role !== 'hiker' && role !== 'moderator')) return null;
-    return { userId: payload.sub, role };
+    if (!payload.sub) return null;
+    return { userId: payload.sub };
   } catch {
     return null;
   }
@@ -72,7 +72,7 @@ export async function issueRefreshToken(
 }
 
 export type RotationResult =
-  | { ok: true; userId: string; role: Role; refresh: IssuedRefreshToken; accessToken: string }
+  | { ok: true; userId: string; refresh: IssuedRefreshToken; accessToken: string }
   | { ok: false; reason: 'unknown' | 'expired' | 'reused' };
 
 /**
@@ -89,13 +89,11 @@ export async function rotateRefreshToken(token: string): Promise<RotationResult>
     const { rows } = await client.query<{
       id: string;
       user_id: string;
-      role: Role;
       expires_at: Date;
       used_at: Date | null;
     }>(
-      `SELECT t.id, t.user_id, u.role, t.expires_at, t.used_at
+      `SELECT t.id, t.user_id, t.expires_at, t.used_at
          FROM refresh_tokens t
-         JOIN users u ON u.id = t.user_id
         WHERE t.token_hash = $1
           FOR UPDATE OF t`,
       [fingerprint(token)],
@@ -120,9 +118,9 @@ export async function rotateRefreshToken(token: string): Promise<RotationResult>
 
     await client.query('UPDATE refresh_tokens SET used_at = now() WHERE id = $1', [row.id]);
     const refresh = await issueRefreshToken(row.user_id, client);
-    const accessToken = await signAccessToken({ userId: row.user_id, role: row.role });
+    const accessToken = await signAccessToken({ userId: row.user_id });
     await client.query('COMMIT');
-    return { ok: true, userId: row.user_id, role: row.role, refresh, accessToken };
+    return { ok: true, userId: row.user_id, refresh, accessToken };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

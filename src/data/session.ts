@@ -41,6 +41,11 @@ export async function saveTokens(tokens: Tokens): Promise<void> {
   ]);
 }
 
+/** Whether this device holds a session. Local, so it works with no signal. */
+export async function hasSession(): Promise<boolean> {
+  return (await readTokens()) !== null;
+}
+
 export async function clearTokens(): Promise<void> {
   await Promise.all([
     SecureStore.deleteItemAsync(ACCESS_KEY).catch(() => undefined),

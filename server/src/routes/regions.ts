@@ -15,10 +15,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { config } from '../config';
-import { describe, readTile, type RegionDefinition } from '../tiles/archive';
+import { buildStyle } from '../tiles/style';
+import { contourId, describe, readTile, type RegionDefinition } from '../tiles/archive';
 
 interface RegionsFile {
   regions: RegionDefinition[];
@@ -38,85 +39,21 @@ function definitions(): RegionDefinition[] {
 }
 
 /**
- * A MapLibre style that draws a legible hiking basemap.
+ * The style this region is drawn with.
  *
- * Built here rather than shipped in the app so that the tile addresses
- * match the server actually answering, which differs between a phone on
- * the local network and a deployment.
+ * Built here rather than shipped in the application so that the tile and
+ * glyph addresses match the server actually answering, which differs
+ * between a phone on the local network and a deployment. What it paints,
+ * and why a walking map paints it that way, lives in tiles/style.ts.
+ *
+ * Built from the region's status and not from its definition, because
+ * whether the contours exist is a fact about the disk rather than about
+ * the catalogue, and a style that declares a source with no archive
+ * behind it leaves the map asking for tiles nobody can answer.
  */
 function style(origin: string, region: RegionDefinition) {
-  return {
-    version: 8,
-    name: region.name,
-    sources: {
-      trekkapp: {
-        type: 'vector',
-        tiles: [`${origin}/api/regions/${region.id}/tiles/{z}/{x}/{y}.pbf`],
-        minzoom: region.minZoom,
-        maxzoom: region.maxZoom,
-        bounds: [region.bounds.west, region.bounds.south, region.bounds.east, region.bounds.north],
-      },
-    },
-    layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#f3f1ea' } },
-      {
-        id: 'wood',
-        type: 'fill',
-        source: 'trekkapp',
-        'source-layer': 'landcover',
-        filter: ['in', 'class', 'wood', 'grass', 'scrub'],
-        paint: { 'fill-color': '#dde6cf' },
-      },
-      {
-        id: 'water',
-        type: 'fill',
-        source: 'trekkapp',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#9fc3df' },
-      },
-      {
-        id: 'waterway',
-        type: 'line',
-        source: 'trekkapp',
-        'source-layer': 'waterway',
-        paint: { 'line-color': '#9fc3df', 'line-width': 1.1 },
-      },
-      // Tracks and paths are drawn more prominently than roads. On this map
-      // they are the subject, not a detail of the surroundings.
-      {
-        id: 'roads',
-        type: 'line',
-        source: 'trekkapp',
-        'source-layer': 'transportation',
-        filter: ['!in', 'class', 'path', 'track'],
-        paint: { 'line-color': '#ffffff', 'line-width': 1.6 },
-      },
-      {
-        id: 'paths',
-        type: 'line',
-        source: 'trekkapp',
-        'source-layer': 'transportation',
-        filter: ['in', 'class', 'path', 'track'],
-        paint: {
-          'line-color': '#b4702f',
-          'line-width': 1.3,
-          'line-dasharray': [2, 1.5],
-        },
-      },
-      {
-        id: 'peaks',
-        type: 'circle',
-        source: 'trekkapp',
-        'source-layer': 'mountain_peak',
-        paint: {
-          'circle-radius': 3,
-          'circle-color': '#6b4a2f',
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#ffffff',
-        },
-      },
-    ],
-  };
+  const status = describe(config.tilesDir, region);
+  return buildStyle(origin, { ...region, contours: status.contours });
 }
 
 export async function regionRoutes(app: FastifyInstance): Promise<void> {
@@ -146,19 +83,48 @@ export async function regionRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'invalid_tile' });
       }
 
-      const tile = readTile(config.tilesDir, request.params.id, z, x, y);
-      // An absent tile is normal, not an error: a region is a rectangle and
-      // much of it holds nothing worth drawing. MapLibre expects 204.
-      if (!tile) return reply.code(204).send();
-
-      return reply
-        .header('content-type', 'application/x-protobuf')
-        // Planetiler stores vector tiles already compressed.
-        .header('content-encoding', 'gzip')
-        // The archive is versioned by regeneration, so a tile is immutable
-        // for as long as the region keeps its version.
-        .header('cache-control', 'public, max-age=604800, immutable')
-        .send(Buffer.from(tile));
+      return serveTile(reply, readTile(config.tilesDir, request.params.id, z, x, y));
     },
   );
+
+  /**
+   * The contour lines of a region.
+   *
+   * A second archive rather than more layers in the first. The terrain and
+   * the map of what people built on it come from different data under
+   * different terms, are generated by different tools, and change on
+   * entirely different timescales. See tiles/make-contours.ts.
+   */
+  app.get<{ Params: { id: string; z: string; x: string; y: string } }>(
+    '/api/regions/:id/contours/:z/:x/:y.pbf',
+    async (request, reply) => {
+      const z = Number(request.params.z);
+      const x = Number(request.params.x);
+      const y = Number(request.params.y);
+      if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) {
+        return reply.code(400).send({ error: 'invalid_tile' });
+      }
+
+      return serveTile(
+        reply,
+        readTile(config.tilesDir, contourId(request.params.id), z, x, y),
+      );
+    },
+  );
+}
+
+/** Answers with a vector tile, or says there is nothing there to draw. */
+function serveTile(reply: FastifyReply, tile: Uint8Array | null) {
+  // An absent tile is normal, not an error: a region is a rectangle and
+  // much of it holds nothing worth drawing. MapLibre expects 204.
+  if (!tile) return reply.code(204).send();
+
+  return reply
+    .header('content-type', 'application/x-protobuf')
+    // Both archives store their vector tiles already compressed.
+    .header('content-encoding', 'gzip')
+    // An archive is versioned by regeneration, so a tile is immutable for
+    // as long as the region keeps its version.
+    .header('cache-control', 'public, max-age=604800, immutable')
+    .send(Buffer.from(tile));
 }

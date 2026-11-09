@@ -1,5 +1,5 @@
-/** Los módulos de dominio y de datos son TypeScript puro, sin React Native,
- *  así que se prueban directamente en Node: más rápido y sin preset nativo. */
+/** The domain and data modules are plain TypeScript with no React Native, so
+ *  they run directly in Node: faster, and with no native preset. */
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',

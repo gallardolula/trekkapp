@@ -1,13 +1,28 @@
-/** Hiker profile and appearance.
+/** The account on this device.
  *
- *  Holds the account data, the declared level and the light or dark mode
- *  preference, which is stored with the profile because it is a decision
- *  about power draw and night vision rather than a matter of taste.
+ *  Who is signed in, what they declared about themselves, and what the
+ *  phone is carrying for them. The walks used to live here too and now have
+ *  their own section, which leaves this screen with one subject instead of
+ *  three.
+ *
+ *  The dark mode preference is stored with the profile because it is a
+ *  decision about power draw and night vision rather than a matter of
+ *  taste.
  */
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 
+import { endSession } from '../../src/data/api';
 import {
   countPendingSync,
   listTrails,
@@ -15,8 +30,7 @@ import {
   readProfile,
   saveLevel,
   TrailSummary,
-} from '../src/data/db';
-import { Level } from '../src/domain/types';
+} from '../../src/data/db';
 import {
   downloadRegion,
   downloadedRegions,
@@ -26,20 +40,16 @@ import {
   removeRegion,
   type DownloadedRegion,
   type Region,
-} from '../src/data/regions';
-import { listHikes, type HikeSummary } from '../src/data/db';
-import { prepareStorage } from '../src/startup/storage';
-import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
+} from '../../src/data/regions';
+import { Level } from '../../src/domain/types';
+import { Button } from '../../src/ui/forms';
+import { StateView } from '../../src/ui/StateView';
+import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../../src/ui/theme';
 
 const LEVELS: Level[] = ['beginner', 'intermediate', 'advanced'];
 
 export default function Profile() {
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [held, setHeld] = useState<DownloadedRegion[]>([]);
-  const [busyRegion, setBusyRegion] = useState<string | null>(null);
-  const [regionProgress, setRegionProgress] = useState(0);
-  const [regionError, setRegionError] = useState<string | null>(null);
-  const [hikes, setHikes] = useState<HikeSummary[]>([]);
+  const router = useRouter();
   const { c, mode, toggle } = useTheme();
   const s = useMemo(() => styles(c), [c]);
   const colour = difficultyColour(c);
@@ -47,27 +57,30 @@ export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [pending, setPending] = useState(0);
   const [offlineReady, setOfflineReady] = useState<TrailSummary[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [held, setHeld] = useState<DownloadedRegion[]>([]);
+  const [busyRegion, setBusyRegion] = useState<string | null>(null);
+  const [regionProgress, setRegionProgress] = useState(0);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  // Which region the failed attempt was for, so the retry knows what to try
+  // again rather than offering a button that has to guess.
+  const [failedRegion, setFailedRegion] = useState<Region | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
-        await prepareStorage();
-        const [p, n, list] = await Promise.all([
-          readProfile(),
-          countPendingSync(),
-          listTrails(),
-        ]);
+        const [p, n, list] = await Promise.all([readProfile(), countPendingSync(), listTrails()]);
         if (!active) return;
         setProfile(p);
         setPending(n);
         setOfflineReady(list.filter((t) => t.downloadedAt !== null));
+        setHeld(await downloadedRegions());
 
         // The region catalogue needs the server, so a failure here is
         // ordinary rather than exceptional. The section simply shows
         // nothing instead of the screen refusing to load.
-        setHikes(await listHikes());
-        setHeld(await downloadedRegions());
         try {
           const available = await listRegions();
           if (active) setRegions(available.filter((r) => r.available));
@@ -91,11 +104,20 @@ export default function Profile() {
     setBusyRegion(region.id);
     setRegionProgress(0);
     setRegionError(null);
+    setFailedRegion(null);
     try {
       await downloadRegion(region, (p) => setRegionProgress(p.percentage));
       setHeld(await downloadedRegions());
-    } catch {
-      setRegionError('No pudimos descargar la región. Revisá tu conexión y volvé a intentar.');
+    } catch (error) {
+      // The reason comes from the native downloader and is shown as it
+      // arrived. A region fails to download for reasons that have nothing
+      // to do with signal, and hiding them behind one sentence about the
+      // connection is what made the last one take an afternoon to find.
+      const detail = error instanceof Error ? error.message : null;
+      setFailedRegion(region);
+      setRegionError(
+        detail ?? 'Puede que se haya cortado la conexión. Volvé a intentar en un momento.',
+      );
     } finally {
       setBusyRegion(null);
     }
@@ -104,6 +126,37 @@ export default function Profile() {
   async function discardRegion(region: Region) {
     await removeRegion(region.id);
     setHeld(await downloadedRegions());
+  }
+
+  /**
+   * Ends the session on this device.
+   *
+   * Nothing the hiker recorded is deleted, and that is worth saying out
+   * loud in the confirmation, because every other application teaches
+   * people that signing out loses things. What does stay behind is the
+   * queue, so anything unsent is named before they leave.
+   */
+  function askToSignOut() {
+    const queued =
+      pending > 0
+        ? `\n\nTenés ${pending} reporte${pending === 1 ? '' : 's'} sin enviar. Si cerrás sesión ahora ${pending === 1 ? 'queda guardado' : 'quedan guardados'} en el teléfono y se ${pending === 1 ? 'envía' : 'envían'} cuando vuelvas a entrar.`
+        : '';
+    Alert.alert(
+      '¿Cerrar sesión?',
+      `Tus recorridos, tus senderos descargados y los mapas sin conexión se quedan en este teléfono. Vas a necesitar conexión para volver a entrar.${queued}`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Cerrar sesión',
+          style: 'destructive',
+          onPress: async () => {
+            setLeaving(true);
+            await endSession();
+            router.replace('/welcome');
+          },
+        },
+      ],
+    );
   }
 
   if (!profile) {
@@ -115,10 +168,17 @@ export default function Profile() {
   }
 
   return (
-    <ScrollView contentContainerStyle={s.content}>
+    <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <Text style={s.title}>Perfil</Text>
+
       <View style={s.identity}>
-        <Text style={s.name}>{profile.name}</Text>
-        <Text style={s.email}>{profile.email}</Text>
+        <View style={s.monogram}>
+          <Text style={s.monogramText}>{profile.name.slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.name}>{profile.name}</Text>
+          <Text style={s.email}>{profile.email}</Text>
+        </View>
       </View>
 
       <Text style={s.section}>Nivel de experiencia</Text>
@@ -152,7 +212,7 @@ export default function Profile() {
         <Switch value={mode === 'dark'} onValueChange={toggle} />
       </View>
 
-      <Text style={s.section}>Senderos descargados</Text>
+      <Text style={s.section}>En este teléfono</Text>
       <View style={s.card}>
         <Text style={s.cardText}>
           {offlineReady.length === 0
@@ -166,33 +226,12 @@ export default function Profile() {
             {t.name}
           </Text>
         ))}
+        <Text style={s.cardNote}>
+          {pending === 0
+            ? 'No hay reportes pendientes de enviar.'
+            : `${pending} reporte${pending === 1 ? '' : 's'} esperando conexión.`}
+        </Text>
       </View>
-
-      <Text style={s.section}>Tus recorridos</Text>
-      {hikes.length === 0 ? (
-        <Text style={s.hint}>Todavía no registraste ninguna caminata.</Text>
-      ) : (
-        hikes.map((h) => {
-          const fecha = new Date(h.startedAt).toLocaleDateString('es-AR', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          });
-          return (
-            <View key={h.id} style={s.regionCard}>
-              <Text style={s.regionTitle}>{h.trailName}</Text>
-              <Text style={s.regionDetail}>{fecha}</Text>
-              <Text style={s.regionDetail}>
-                {(h.distanceM / 1000).toFixed(2)} km caminados · {h.points} lecturas
-                {h.deviations > 0
-                  ? ` · ${h.deviations} desvío${h.deviations === 1 ? '' : 's'}`
-                  : ' · sin desvíos'}
-                {h.finishedAt === null ? ' · sin cerrar' : ''}
-              </Text>
-            </View>
-          );
-        })
-      )}
 
       <Text style={s.section}>Mapas sin conexión</Text>
       {!regionsSupported() ? (
@@ -245,18 +284,27 @@ export default function Profile() {
           );
         })
       )}
-      {regionError && <Text style={s.hint}>{regionError}</Text>}
+      {regionError && (
+        <StateView
+          kind="failed"
+          compact
+          title="No pudimos descargar la región"
+          detail={regionError}
+          action={{
+            label: 'Volver a intentar',
+            onPress: () => failedRegion && void getRegion(failedRegion),
+          }}
+        />
+      )}
 
-      <Text style={s.section}>Sincronización</Text>
-      <View style={s.card}>
-        <Text style={s.cardText}>
-          {pending === 0
-            ? 'No hay reportes pendientes de enviar.'
-            : `${pending} reporte${pending === 1 ? '' : 's'} esperando conexión.`}
-        </Text>
-        <Text style={s.cardNote}>
-          La sincronización con el servidor es un componente pendiente de implementación.
-        </Text>
+      <View style={s.leave}>
+        <Button
+          label="Cerrar sesión"
+          variant="outline"
+          tone="danger"
+          onPress={askToSignOut}
+          busy={leaving}
+        />
       </View>
     </ScrollView>
   );
@@ -266,40 +314,40 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
     centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    identity: { marginBottom: sp.lg },
-    name: { fontSize: 22, fontWeight: '800', color: c.text },
-    email: { color: c.mutedText, fontSize: 13, marginTop: 2 },
-    regionCard: {
-      backgroundColor: c.surface,
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
-      marginBottom: sp.sm,
-      gap: sp.xs,
-    },
-    regionTitle: { color: c.text, fontWeight: '700', fontSize: 14 },
-    regionDetail: { color: c.mutedText, fontSize: 12, lineHeight: 17 },
-    regionButton: {
-      backgroundColor: c.primary,
-      borderRadius: 8,
-      paddingVertical: sp.sm,
+    title: { fontSize: 32, fontWeight: '800', color: c.text, marginBottom: sp.lg },
+
+    identity: { flexDirection: 'row', alignItems: 'center', gap: sp.md },
+    monogram: {
+      width: 54,
+      height: 54,
+      borderRadius: 27,
+      backgroundColor: c.primarySoft,
       alignItems: 'center',
-      marginTop: sp.xs,
+      justifyContent: 'center',
     },
-    regionButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 13 },
-    section: { color: c.text, fontWeight: '700', fontSize: 13, marginTop: sp.lg, marginBottom: sp.sm },
+    monogramText: { color: c.primary, fontWeight: '800', fontSize: 22 },
+    name: { fontSize: 19, fontWeight: '800', color: c.text },
+    email: { color: c.mutedText, fontSize: 13, marginTop: 2 },
+
+    section: {
+      color: c.text,
+      fontWeight: '700',
+      fontSize: 13,
+      marginTop: sp.xl,
+      marginBottom: sp.sm,
+    },
     levels: { flexDirection: 'row', gap: sp.sm },
     levelChip: {
       flex: 1,
       borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 20,
-      paddingVertical: 8,
+      borderWidth: 1.5,
+      borderRadius: 22,
+      paddingVertical: 10,
       alignItems: 'center',
     },
-    levelText: { color: c.text, fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
-    hint: { color: c.mutedText, fontSize: 11, marginTop: sp.sm, lineHeight: 16 },
+    levelText: { color: c.text, fontSize: 12.5, fontWeight: '600', textTransform: 'capitalize' },
+    hint: { color: c.mutedText, fontSize: 11.5, marginTop: sp.sm, lineHeight: 16 },
+
     switchRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -307,19 +355,42 @@ const styles = (c: Palette) =>
       backgroundColor: c.surface,
       borderColor: c.border,
       borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
+      borderRadius: 14,
+      padding: sp.lg,
     },
     switchTitle: { color: c.text, fontWeight: '700', fontSize: 14 },
-    switchDetail: { color: c.mutedText, fontSize: 12, marginTop: 2, lineHeight: 17 },
+    switchDetail: { color: c.mutedText, fontSize: 12.5, marginTop: 2, lineHeight: 18 },
+
     card: {
       backgroundColor: c.surface,
       borderColor: c.border,
       borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
+      borderRadius: 14,
+      padding: sp.lg,
     },
-    cardText: { color: c.text, fontSize: 13 },
-    listItem: { color: c.mutedText, fontSize: 12, marginTop: sp.sm, lineHeight: 17 },
-    cardNote: { color: c.mutedText, fontSize: 11, marginTop: sp.sm, lineHeight: 16 },
+    cardText: { color: c.text, fontSize: 13.5 },
+    listItem: { color: c.mutedText, fontSize: 12.5, marginTop: sp.sm, lineHeight: 18 },
+    cardNote: { color: c.mutedText, fontSize: 11.5, marginTop: sp.md, lineHeight: 16 },
+
+    regionCard: {
+      backgroundColor: c.surface,
+      borderColor: c.border,
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: sp.lg,
+      marginBottom: sp.sm,
+      gap: sp.xs,
+    },
+    regionTitle: { color: c.text, fontWeight: '700', fontSize: 14 },
+    regionDetail: { color: c.mutedText, fontSize: 12.5, lineHeight: 18 },
+    regionButton: {
+      backgroundColor: c.primary,
+      borderRadius: 22,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: sp.sm,
+    },
+    regionButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 13 },
+
+    leave: { marginTop: sp.xl * 1.5 },
   });
