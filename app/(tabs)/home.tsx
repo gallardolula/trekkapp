@@ -1,29 +1,71 @@
-/** Home screen.
+/** Home.
  *
- *  Brings together the state of the account, the entry points to each
- *  section, and what is ready to be used offline, which is the fact the
- *  hiker needs before heading out.
+ *  Answers one question: what can I do right now. Everything on it is
+ *  something the hiker can act on without leaving, and what is missing is
+ *  as deliberate as what is here. There is no feed of other people's
+ *  outings, because the application works without a connection and a feed
+ *  that is empty or stale offline is worse than no feed.
+ *
+ *  The cards lead with the trail itself rather than a photograph. See
+ *  `TrailArt` for why, and for what the drawing actually shows.
  */
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
-import { countPendingSync, listTrails, Profile, readProfile, TrailSummary } from '../src/data/db';
-import { NotAuthenticatedError, synchronise } from '../src/sync/engine';
-import { prepareStorage } from '../src/startup/storage';
-import { LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
+import {
+  countPendingSync,
+  listTrails,
+  Profile,
+  readProfile,
+  readTrackShape,
+  TrailSummary,
+} from '../../src/data/db';
+import { Point } from '../../src/domain/types';
+import { NotAuthenticatedError, synchronise } from '../../src/sync/engine';
+import { prepareStorage } from '../../src/startup/storage';
+import { TrailArt } from '../../src/ui/TrailArt';
+import { OfflineIcon, SyncIcon } from '../../src/ui/icons';
+import { useConnectivity } from '../../src/data/connectivity';
+import { StateView } from '../../src/ui/StateView';
+import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../../src/ui/theme';
+
+/** Which slice of the catalogue the feed is showing. */
+type Filter = 'ready' | 'level' | 'all';
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'ready', label: 'Listos sin conexión' },
+  { id: 'level', label: 'Para tu nivel' },
+  { id: 'all', label: 'Todos' },
+];
+
+const HARDER: Record<string, string[]> = {
+  beginner: ['beginner'],
+  intermediate: ['beginner', 'intermediate'],
+  advanced: ['beginner', 'intermediate', 'advanced'],
+};
 
 export default function Home() {
   const router = useRouter();
   const { c, refresh } = useTheme();
   const s = useMemo(() => styles(c), [c]);
+  const { width } = useWindowDimensions();
+  const { online } = useConnectivity();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trails, setTrails] = useState<TrailSummary[]>([]);
-  const [downloaded, setDownloaded] = useState(0);
+  const [shapes, setShapes] = useState<Record<string, Point[]>>({});
   const [pending, setPending] = useState(0);
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>('ready');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -31,22 +73,22 @@ export default function Home() {
     useCallback(() => {
       let active = true;
       (async () => {
-        try {
-          await prepareStorage();
-          const [p, list, pend] = await Promise.all([
-            readProfile(),
-            listTrails(),
-            countPendingSync(),
-          ]);
+        await prepareStorage();
+        const [p, list, n] = await Promise.all([readProfile(), listTrails(), countPendingSync()]);
+        if (!active) return;
+        setProfile(p);
+        setTrails(list);
+        setPending(n);
+        setReady(true);
+        refresh();
+
+        // The drawings are loaded after the cards are already on screen.
+        // Each one is a separate read, and waiting for all of them before
+        // showing anything would hold up a screen that is otherwise ready.
+        for (const t of list) {
+          const shape = await readTrackShape(t.id);
           if (!active) return;
-          setProfile(p);
-          setTrails(list);
-          setDownloaded(list.filter((t) => t.downloadedAt !== null).length);
-          setPending(pend);
-          setReady(true);
-          refresh();
-        } catch (err) {
-          if (active) setError(String(err));
+          setShapes((prev) => ({ ...prev, [t.id]: shape }));
         }
       })();
       return () => {
@@ -70,18 +112,22 @@ export default function Home() {
       const result = await synchronise();
       const parts: string[] = [];
       const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-      if (result.reportsSent > 0) parts.push(plural(result.reportsSent, 'reporte enviado', 'reportes enviados'));
-      if (result.trailsReceived > 0) parts.push(plural(result.trailsReceived, 'sendero actualizado', 'senderos actualizados'));
-      if (result.reportsReceived > 0) parts.push(plural(result.reportsReceived, 'reporte recibido', 'reportes recibidos'));
-      if (result.reportsRejected > 0) parts.push(plural(result.reportsRejected, 'rechazado', 'rechazados'));
+      if (result.reportsSent > 0)
+        parts.push(plural(result.reportsSent, 'reporte enviado', 'reportes enviados'));
+      if (result.trailsReceived > 0)
+        parts.push(plural(result.trailsReceived, 'sendero actualizado', 'senderos actualizados'));
+      if (result.reportsReceived > 0)
+        parts.push(plural(result.reportsReceived, 'reporte recibido', 'reportes recibidos'));
+      if (result.reportsRejected > 0)
+        parts.push(plural(result.reportsRejected, 'rechazado', 'rechazados'));
       setSyncMessage(
         parts.length === 0
           ? 'Todo al día, no había nada para sincronizar'
           : `${parts.join(', ')}${result.complete ? '' : '. Queda más por traer, volvé a sincronizar'}`,
       );
-      const [list, pend] = await Promise.all([listTrails(), countPendingSync()]);
+      const [list, n] = await Promise.all([listTrails(), countPendingSync()]);
       setTrails(list);
-      setPending(pend);
+      setPending(n);
     } catch (e) {
       setSyncMessage(
         e instanceof NotAuthenticatedError
@@ -93,16 +139,7 @@ export default function Home() {
     }
   }
 
-  if (error) {
-  return (
-      <View style={s.centre}>
-        <Text style={s.errorTitle}>No se pudo abrir el almacenamiento local</Text>
-        <Text style={s.errorDetail}>{error}</Text>
-      </View>
-    );
-  }
-
-  if (!ready) {
+  if (!ready || !profile) {
     return (
       <View style={s.centre}>
         <ActivityIndicator color={c.primary} />
@@ -110,93 +147,132 @@ export default function Home() {
     );
   }
 
-  if (!profile) {
-    return (
-      <View style={s.welcome}>
-        <Text style={s.brand}>TrekkApp</Text>
-        <Text style={s.tagline}>
-          Planificá y recorré senderos de montaña sin depender de la cobertura de red.
-        </Text>
-        <Pressable style={s.primaryButton} onPress={() => router.push('/signup')}>
-          <Text style={s.primaryButtonText}>Comenzar</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   const firstName = profile.name.split(' ')[0] || 'caminante';
-  const offlineReady = trails.filter((t) => t.downloadedAt !== null);
+  const downloaded = trails.filter((t) => t.downloadedAt !== null);
+  const allowed = HARDER[profile.level] ?? [];
+  const shown =
+    filter === 'ready'
+      ? downloaded
+      : filter === 'level'
+        ? trails.filter((t) => allowed.includes(t.attributes.difficulty))
+        : trails;
+
+  const cardWidth = width - sp.lg * 2;
+  const colour = difficultyColour(c);
 
   return (
-    <ScrollView contentContainerStyle={s.content}>
-      <View style={s.header}>
-        <Text style={s.greeting}>Hola, {firstName}</Text>
-        <Text style={s.level}>Nivel {LEVEL_LABEL[profile.level]}</Text>
-      </View>
+    <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <Text style={s.title}>Inicio</Text>
 
-      <View style={s.summary}>
-        {[
-          [String(trails.length), trails.length === 1 ? 'sendero' : 'senderos'],
-          [String(downloaded), downloaded === 1 ? 'descargado' : 'descargados'],
-          [String(pending), pending === 1 ? 'pendiente' : 'pendientes'],
-        ].map(([v, label]) => (
-          <View key={label} style={s.stat}>
-            <Text style={s.statValue}>{v}</Text>
-            <Text style={s.statLabel}>{label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <Pressable style={s.feature} onPress={() => router.push('/catalog')}>
-        <Text style={s.featureTitle}>Explorar senderos</Text>
-        <Text style={s.featureText}>
-          Consultá distancia, desnivel y exigencia, y descargá el que vayas a recorrer.
-        </Text>
-      </Pressable>
-
-      <Text style={s.section}>Listos para salir</Text>
-      {offlineReady.length === 0 ? (
-        <View style={s.empty}>
-          <Text style={s.emptyText}>
-            Todavía no descargaste ningún sendero. Sin descargar, el recorrido no funciona sin
-            cobertura de red.
+      {/* The hiker, and the one action that needs a connection. Together,
+          because deciding whether to synchronise is deciding whether this
+          phone is ready to leave. */}
+      <View style={s.hiker}>
+        <View style={s.monogram}>
+          <Text style={s.monogramText}>{firstName.slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.hiName}>Hola, {firstName}</Text>
+          <Text style={s.hiLevel}>
+            Nivel {LEVEL_LABEL[profile.level]} · {downloaded.length} sin conexión
+            {pending > 0 ? ` · ${pending} sin enviar` : ''}
           </Text>
         </View>
-      ) : (
-        offlineReady.map((t) => (
-          <Pressable key={t.id} style={s.card} onPress={() => router.push(`/trail/${t.id}`)}>
-            <View style={s.cardRow}>
-              <Text style={s.cardName}>{t.name}</Text>
-              <Text style={s.badge}>sin conexión</Text>
-            </View>
-            <Text style={s.cardMeta}>
-              {(t.attributes.distanceM / 1000).toFixed(1)} km ·{' '}
-              {Math.round(t.attributes.elevationGainM)} m · {LEVEL_LABEL[t.attributes.difficulty]}
-            </Text>
+        {/* No button. Synchronising happens on its own whenever the
+            application comes to the front and the server answers, so an
+            action offering to do it would be asking for something that
+            already happened. What is left is saying where things stand,
+            and a way to insist only when there is something waiting and a
+            server to send it to. */}
+        {syncing ? (
+          <View style={s.syncState}>
+            <ActivityIndicator color={c.primary} size="small" />
+          </View>
+        ) : pending > 0 && online ? (
+          <Pressable style={s.syncNow} onPress={runSync}>
+            <SyncIcon colour={c.primary} size={15} />
+            <Text style={s.syncNowText}>Enviar</Text>
           </Pressable>
-        ))
-      )}
+        ) : null}
+      </View>
 
-      <Pressable style={s.secondary} onPress={() => router.push('/profile')}>
-        <Text style={s.secondaryText}>Tu perfil y apariencia</Text>
-      </Pressable>
+      {syncMessage && <Text style={s.syncMessage}>{syncMessage}</Text>}
 
-      <Pressable
-        style={[s.secondary, syncing && s.secondaryOff]}
-        onPress={runSync}
-        disabled={syncing}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={s.chips}
+        style={s.chipRow}
       >
-        <Text style={s.secondaryText}>
-          {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
-        </Text>
-      </Pressable>
+        {FILTERS.map((f) => {
+          const on = filter === f.id;
+          return (
+            <Pressable
+              key={f.id}
+              onPress={() => setFilter(f.id)}
+              style={[s.chip, on && { borderColor: c.primary, borderWidth: 2 }]}
+            >
+              <Text style={[s.chipText, on && { color: c.primary }]}>{f.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
-      <Text style={s.footer}>
-        {syncMessage ??
-          (pending === 0
-            ? 'No hay reportes pendientes de sincronizar'
-            : `${pending} reporte${pending === 1 ? '' : 's'} esperando conexión`)}
-      </Text>
+      {shown.length === 0 ? (
+        <StateView
+          kind="empty"
+          title={
+            filter === 'ready'
+              ? 'Todavía no marcaste ningún sendero'
+              : 'No hay senderos para mostrar'
+          }
+          detail={
+            filter === 'ready'
+              ? 'Elegí el que vayas a caminar y dejalo listo antes de salir. Después funciona sin señal.'
+              : 'El catálogo llega al sincronizar, y también podés importar un sendero desde un archivo GPX.'
+          }
+          action={{ label: 'Ver todos los senderos', onPress: () => router.navigate('/catalog') }}
+        />
+      ) : (
+        shown.map((t) => {
+          const offline = t.downloadedAt !== null;
+          return (
+            <Pressable
+              key={t.id}
+              style={s.card}
+              onPress={() => router.push(`/trail/${t.id}`)}
+              accessibilityRole="button"
+            >
+              <View style={s.art}>
+                <TrailArt
+                  track={shapes[t.id] ?? []}
+                  colours={c}
+                  width={cardWidth}
+                  height={200}
+                  tint={colour[t.attributes.difficulty]}
+                />
+                <View style={s.artOverlay}>
+                  {offline && (
+                    <View style={s.badge}>
+                      <OfflineIcon colour={c.onPrimary} size={13} />
+                      <Text style={s.badgeText}>En el teléfono</Text>
+                    </View>
+                  )}
+                  <Text style={s.cardKind}>
+                    {t.status === 'local' ? 'Sólo en tu teléfono' : 'Sendero'}
+                  </Text>
+                  <Text style={s.cardName}>{t.name}</Text>
+                  <Text style={s.cardMeta}>
+                    {(t.attributes.distanceM / 1000).toFixed(1)} km ·{' '}
+                    {Math.round(t.attributes.elevationGainM)} m ·{' '}
+                    {LEVEL_LABEL[t.attributes.difficulty]}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })
+      )}
     </ScrollView>
   );
 }
@@ -204,76 +280,83 @@ export default function Home() {
 const styles = (c: Palette) =>
   StyleSheet.create({
     content: { padding: sp.lg, paddingBottom: sp.xl * 2 },
-    centre: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: sp.xl },
-    errorTitle: { color: c.danger, fontWeight: '700', marginBottom: sp.sm },
-    errorDetail: { color: c.mutedText, fontSize: 12, textAlign: 'center' },
-    welcome: { flex: 1, justifyContent: 'center', padding: sp.xl },
-    brand: { fontSize: 34, fontWeight: '800', color: c.primary, textAlign: 'center' },
-    tagline: {
-      color: c.mutedText,
-      fontSize: 15,
-      lineHeight: 22,
-      textAlign: 'center',
-      marginTop: sp.md,
-      marginBottom: sp.xl,
-    },
-    primaryButton: { backgroundColor: c.primary, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
-    primaryButtonText: { color: c.onPrimary, fontWeight: '700', fontSize: 16 },
-    header: { marginBottom: sp.lg },
-    greeting: { fontSize: 24, fontWeight: '800', color: c.text },
-    level: { color: c.mutedText, fontSize: 13, marginTop: 2, textTransform: 'capitalize' },
-    summary: {
-      flexDirection: 'row',
+    centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    title: { fontSize: 32, fontWeight: '800', color: c.text, marginBottom: sp.lg },
+
+    hiker: { flexDirection: 'row', alignItems: 'center', gap: sp.md },
+    monogram: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       backgroundColor: c.primarySoft,
-      borderRadius: 12,
-      paddingVertical: sp.md,
-      marginBottom: sp.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    stat: { flex: 1, alignItems: 'center' },
-    statValue: { fontSize: 20, fontWeight: '800', color: c.primary },
-    statLabel: { fontSize: 11, color: c.mutedText, marginTop: 2 },
-    feature: { backgroundColor: c.primary, borderRadius: 12, padding: sp.lg, marginBottom: sp.lg },
-    featureTitle: { color: c.onPrimary, fontWeight: '800', fontSize: 17 },
-    featureText: { color: c.onPrimary, opacity: 0.9, fontSize: 13, marginTop: sp.xs, lineHeight: 18 },
-    card: {
+    monogramText: { color: c.primary, fontWeight: '800', fontSize: 19 },
+    hiName: { color: c.text, fontWeight: '700', fontSize: 16 },
+    hiLevel: { color: c.mutedText, fontSize: 12.5, marginTop: 2 },
+    syncState: { width: 44, alignItems: 'center' },
+    syncNow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      borderColor: c.primary,
+      borderWidth: 1.5,
+      borderRadius: 20,
+      paddingVertical: 8,
+      paddingHorizontal: sp.md,
+    },
+    syncNowText: { color: c.primary, fontWeight: '700', fontSize: 12.5 },
+    syncMessage: { color: c.mutedText, fontSize: 12.5, lineHeight: 18, marginTop: sp.md },
+
+    chipRow: { marginTop: sp.lg, marginHorizontal: -sp.lg },
+    chips: { gap: sp.sm, paddingHorizontal: sp.lg, paddingVertical: 2 },
+    chip: {
+      borderColor: c.border,
+      borderWidth: 1.5,
+      borderRadius: 22,
+      paddingVertical: 9,
+      paddingHorizontal: sp.lg,
+      backgroundColor: c.surface,
+    },
+    chipText: { color: c.text, fontSize: 13, fontWeight: '600' },
+
+    card: { marginTop: sp.lg, borderRadius: 18, overflow: 'hidden', backgroundColor: c.surface },
+    art: { position: 'relative' },
+    artOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: sp.lg },
+    badge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      alignSelf: 'flex-start',
+      backgroundColor: '#00000055',
+      borderRadius: 14,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      marginBottom: sp.sm,
+    },
+    badgeText: { color: c.onPrimary, fontSize: 11, fontWeight: '700' },
+    cardKind: { color: c.onPrimary, fontSize: 12.5, opacity: 0.9, fontWeight: '600' },
+    cardName: { color: c.onPrimary, fontSize: 24, fontWeight: '800', marginTop: 2 },
+    cardMeta: { color: c.onPrimary, fontSize: 13, opacity: 0.95, marginTop: 4 },
+
+    empty: {
+      marginTop: sp.lg,
       backgroundColor: c.surface,
       borderColor: c.border,
       borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
-      marginBottom: sp.sm,
+      borderRadius: 18,
+      padding: sp.lg,
     },
-    section: { color: c.text, fontWeight: '700', fontSize: 13, marginBottom: sp.sm },
-    cardRow: { flexDirection: 'row', alignItems: 'center', gap: sp.sm },
-    cardName: { color: c.text, fontWeight: '700', fontSize: 14, flex: 1 },
-    badge: {
-      color: c.success,
-      fontSize: 10,
-      fontWeight: '700',
-      borderColor: c.success,
-      borderWidth: 1,
-      borderRadius: 10,
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-    },
-    empty: {
-      borderColor: c.border,
-      borderWidth: 1,
-      borderStyle: 'dashed',
-      borderRadius: 10,
-      padding: sp.md,
-    },
-    emptyText: { color: c.mutedText, fontSize: 12, lineHeight: 17, textAlign: 'center' },
-    cardMeta: { color: c.mutedText, fontSize: 12, marginTop: 3 },
-    secondary: {
-      borderColor: c.border,
-      borderWidth: 1,
-      borderRadius: 10,
-      padding: sp.md,
+    emptyTitle: { color: c.text, fontWeight: '700', fontSize: 15 },
+    emptyText: { color: c.mutedText, fontSize: 13, lineHeight: 19, marginTop: sp.sm },
+    emptyAction: {
+      marginTop: sp.lg,
+      borderColor: c.primary,
+      borderWidth: 1.5,
+      borderRadius: 22,
+      paddingVertical: 12,
       alignItems: 'center',
-      marginTop: sp.md,
     },
-    secondaryOff: { opacity: 0.5 },
-    secondaryText: { color: c.text, fontSize: 14, fontWeight: '600' },
-    footer: { textAlign: 'center', color: c.mutedText, fontSize: 11, marginTop: sp.lg },
+    emptyActionText: { color: c.primary, fontWeight: '700', fontSize: 14 },
   });
