@@ -3,28 +3,37 @@
  *  Exercised through Fastify's `inject`, so no port is opened and the tests
  *  run as fast as the queries allow.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../app';
 import { pool } from '../db/pool';
+import { resetSchema } from './schema';
 
 jest.setTimeout(60_000);
 
 let app: FastifyInstance;
 
-const TRACK = [
-  { lat: -31.65, lon: -64.68, ele: 2100 },
-  { lat: -31.652, lon: -64.682, ele: 2160 },
-  { lat: -31.655, lon: -64.685, ele: 2240 },
-];
+/**
+ * A track the validation accepts: inside the Sierras, long enough, climbing
+ * at a rate somebody walks. Built rather than written out so a test that
+ * needs a different shape can ask for one.
+ */
+function track(
+  points = 24,
+  { lat = -31.65, lon = -64.68, ele = 2100, climb = 4, step = 0.0004 } = {},
+) {
+  return Array.from({ length: points }, (_, i) => ({
+    lat: lat - i * step,
+    lon: lon - i * step,
+    ele: ele + i * climb,
+  }));
+}
+
+const TRACK = track();
 
 beforeAll(async () => {
-  const sql = readFileSync(join(__dirname, '..', 'db', 'migrations', '001_initial.sql'), 'utf8');
-  await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  await pool.query(sql);
+  await resetSchema(pool);
   app = buildApp();
   await app.ready();
 });
@@ -142,6 +151,56 @@ describe('sign in', () => {
     expect(response.statusCode).toBe(423);
     expect(response.json().error).toBe('account_locked');
   });
+
+  it('says until when, so the hiker knows to wait rather than give up', async () => {
+    const { email } = await register();
+    await failFiveTimes(email);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/session',
+      payload: { email, password: 'Sierras2026!' },
+    });
+    const until = new Date(response.json().until).getTime();
+    expect(until).toBeGreaterThan(Date.now());
+  });
+
+  it('answers a locked account the same way whatever password arrives', async () => {
+    // The lock is checked before the password, which is the only order that
+    // makes it a lock. Checked afterwards, every guess was still verified
+    // against the hash and the one person it stopped was the owner.
+    const { email } = await register();
+    await failFiveTimes(email);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/session',
+      payload: { email, password: 'TodaviaIncorrecta1!' },
+    });
+    expect(response.statusCode).toBe(423);
+  });
+
+  it('lets the account back in once the lock has run out', async () => {
+    const { email } = await register();
+    await failFiveTimes(email);
+    await pool.query("UPDATE users SET locked_until = now() - interval '1 minute' WHERE lower(email) = lower($1)", [
+      email,
+    ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/session',
+      payload: { email, password: 'Sierras2026!' },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  async function failFiveTimes(email: string): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/auth/session',
+        payload: { email, password: 'Incorrecta1!' },
+      });
+    }
+  }
 });
 
 describe('refresh token rotation', () => {
@@ -190,14 +249,17 @@ describe('authorisation', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('refuses the moderation queue to a hiker', async () => {
+  it('no longer serves the moderation queue to anybody', async () => {
+    // The role and its two endpoints are gone. Kept as a test because a
+    // route that quietly came back would reintroduce a profile nothing in
+    // the application can grant.
     const { body } = await register();
     const response = await app.inject({
       method: 'GET',
       url: '/api/moderation/trails',
       headers: auth(body.accessToken),
     });
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(404);
   });
 });
 
@@ -218,11 +280,14 @@ describe('contributed trails', () => {
       },
     });
     expect(response.statusCode).toBe(201);
-    expect(response.json().attributes.distanceM).toBeLessThan(2000);
-    expect(response.json().status).toBe('pending_review');
+    expect(response.json().attributes.distanceM).toBeLessThan(3000);
+    expect(response.json().status).toBe('published');
   });
 
-  it('keeps a contribution out of the catalogue until it is reviewed', async () => {
+  it('publishes a valid contribution straight away', async () => {
+    // There is no queue to wait in. What a reviewer could establish from a
+    // track, the checks establish; what they could not, neither could the
+    // reviewer. See trails/validation.ts.
     const { body } = await register();
     await app.inject({
       method: 'POST',
@@ -235,7 +300,63 @@ describe('contributed trails', () => {
       url: '/api/trails',
       headers: auth(body.accessToken),
     });
-    expect(catalogue.json().trails).toHaveLength(0);
+    expect(catalogue.json().trails).toHaveLength(1);
+    expect(catalogue.json().trails[0].status).toBe('published');
+  });
+
+  it('refuses a second recording of a trail already in the catalogue', async () => {
+    // Without this the catalogue fills with copies of the same route and
+    // somebody looking for it cannot tell which one to download.
+    const { body } = await register();
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/trails',
+        headers: auth(body.accessToken),
+        payload: { name: 'Balcón Norte', points: TRACK },
+      });
+
+    expect((await send()).statusCode).toBe(201);
+    const second = await send();
+    expect(second.statusCode).toBe(409);
+    expect(second.json().reason).toBe('duplicate_of_existing');
+  });
+
+  it('refuses a track with a jump no walker made', async () => {
+    const { body } = await register();
+    const broken = [...track(12), ...track(12, { lat: -31.9, lon: -64.9 })];
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/trails',
+      headers: auth(body.accessToken),
+      payload: { name: 'Dos salidas en un archivo', points: broken },
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().reason).toBe('gap_too_large');
+  });
+
+  it('refuses a track too short to be a route', async () => {
+    const { body } = await register();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/trails',
+      headers: auth(body.accessToken),
+      payload: { name: 'La vuelta manzana', points: track(12, { step: 0.00002 }) },
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().reason).toBe('too_short');
+  });
+
+  it('names where the problem is, so the contributor can fix the file', async () => {
+    const { body } = await register();
+    const broken = [...track(12), ...track(12, { lat: -31.9, lon: -64.9 })];
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/trails',
+      headers: auth(body.accessToken),
+      payload: { name: 'Dos salidas en un archivo', points: broken },
+    });
+    expect(response.json().atPoint).toBe(12);
   });
 
   it('refuses a track outside the covered region', async () => {
@@ -246,10 +367,7 @@ describe('contributed trails', () => {
       headers: auth(body.accessToken),
       payload: {
         name: 'Everest',
-        points: [
-          { lat: 27.98, lon: 86.92 },
-          { lat: 27.99, lon: 86.93 },
-        ],
+        points: track(24, { lat: 27.98, lon: 86.92, ele: 5300 }),
       },
     });
     expect(response.statusCode).toBe(422);
@@ -268,34 +386,22 @@ describe('contributed trails', () => {
   });
 });
 
-describe('moderation and the catalogue delta', () => {
-  async function moderator() {
-    const { body, email } = await register();
-    await pool.query("UPDATE users SET role = 'moderator' WHERE lower(email) = lower($1)", [email]);
-    const session = await app.inject({
-      method: 'POST',
-      url: '/api/auth/session',
-      payload: { email, password: 'Sierras2026!' },
-    });
-    return session.json().accessToken as string;
-  }
-
-  it('publishes a trail and lets it through the delta exactly once', async () => {
-    const token = await moderator();
+describe('the catalogue delta', () => {
+  /** Registers somebody and contributes a trail, which is now published. */
+  async function contributed(points = TRACK) {
+    const { body } = await register();
+    const token = body.accessToken as string;
     const created = await app.inject({
       method: 'POST',
       url: '/api/trails',
       headers: auth(token),
-      payload: { name: 'Balcón Norte', points: TRACK },
+      payload: { name: 'Balcón Norte', points },
     });
-    const id = created.json().id;
+    return { token, trailId: created.json().id as string };
+  }
 
-    await app.inject({
-      method: 'POST',
-      url: `/api/moderation/trails/${id}/review`,
-      headers: auth(token),
-      payload: { decision: 'published' },
-    });
+  it('lets a trail through the delta exactly once', async () => {
+    const { token } = await contributed();
 
     const first = await app.inject({ method: 'GET', url: '/api/trails', headers: auth(token) });
     expect(first.json().trails).toHaveLength(1);
@@ -312,85 +418,70 @@ describe('moderation and the catalogue delta', () => {
     expect(second.json().trails).toHaveLength(0);
   });
 
-  it('refuses a second review of the same submission', async () => {
-    const token = await moderator();
-    const created = await app.inject({
-      method: 'POST',
-      url: '/api/trails',
+  it('returns the full geometry of a published trail', async () => {
+    const { token, trailId } = await contributed();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/trails/${trailId}/track`,
       headers: auth(token),
-      payload: { name: 'Balcón Norte', points: TRACK },
     });
-    const id = created.json().id;
-    const url = `/api/moderation/trails/${id}/review`;
-
-    const first = await app.inject({
-      method: 'POST',
-      url,
-      headers: auth(token),
-      payload: { decision: 'published' },
-    });
-    const second = await app.inject({
-      method: 'POST',
-      url,
-      headers: auth(token),
-      payload: { decision: 'rejected' },
-    });
-
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(409);
+    expect(response.json().points).toHaveLength(TRACK.length);
+    expect(response.json().points[0].lat).toBeCloseTo(TRACK[0]!.lat, 6);
   });
 
-  it('returns the full geometry of a published trail', async () => {
-    const token = await moderator();
-    const created = await app.inject({
-      method: 'POST',
-      url: '/api/trails',
-      headers: auth(token),
-      payload: { name: 'Balcón Norte', points: TRACK },
-    });
-    const id = created.json().id;
-    await app.inject({
-      method: 'POST',
-      url: `/api/moderation/trails/${id}/review`,
-      headers: auth(token),
-      payload: { decision: 'published' },
-    });
+  it('keeps a withdrawn trail out of the catalogue', async () => {
+    const { token, trailId } = await contributed();
+    await pool.query("UPDATE trails SET status = 'withdrawn' WHERE id = $1", [trailId]);
+    const response = await app.inject({ method: 'GET', url: '/api/trails', headers: auth(token) });
+    expect(response.json().trails).toHaveLength(0);
+  });
 
-    const track = await app.inject({
+  it('still lets whoever contributed it retrieve a withdrawn trail', async () => {
+    // The rule used to name the moderator rather than the owner, so the one
+    // person who could not retrieve their own contribution was its author.
+    const { token, trailId } = await contributed();
+    await pool.query("UPDATE trails SET status = 'withdrawn' WHERE id = $1", [trailId]);
+    const response = await app.inject({
       method: 'GET',
-      url: `/api/trails/${id}/track`,
+      url: `/api/trails/${trailId}/track`,
       headers: auth(token),
     });
-    expect(track.json().points).toHaveLength(TRACK.length);
-    expect(track.json().points[0].lat).toBeCloseTo(TRACK[0]!.lat, 6);
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('hides a withdrawn trail from everybody else', async () => {
+    const { trailId } = await contributed();
+    await pool.query("UPDATE trails SET status = 'withdrawn' WHERE id = $1", [trailId]);
+    const other = await register();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/trails/${trailId}/track`,
+      headers: auth(other.body.accessToken),
+    });
+    expect(response.statusCode).toBe(404);
   });
 });
 
 describe('report upload', () => {
+  // Each call contributes a trail somewhere else in the Sierras. Two
+  // recordings of the same route are now refused as duplicates, so a fixed
+  // track would make every test after the first one fail for a reason that
+  // has nothing to do with reports.
+  let elsewhere = 0;
+
   async function publishedTrail() {
-    const { body, email } = await register();
-    await pool.query("UPDATE users SET role = 'moderator' WHERE lower(email) = lower($1)", [email]);
-    const session = await app.inject({
-      method: 'POST',
-      url: '/api/auth/session',
-      payload: { email, password: 'Sierras2026!' },
-    });
-    const token = session.json().accessToken as string;
+    const { body } = await register();
+    const token = body.accessToken as string;
     const created = await app.inject({
       method: 'POST',
       url: '/api/trails',
       headers: auth(token),
-      payload: { name: 'Balcón Norte', points: TRACK },
+      payload: {
+        name: `Balcón Norte ${++elsewhere}`,
+        points: track(24, { lat: -31.65 - elsewhere * 0.05 }),
+      },
     });
-    const id = created.json().id as string;
-    await app.inject({
-      method: 'POST',
-      url: `/api/moderation/trails/${id}/review`,
-      headers: auth(token),
-      payload: { decision: 'published' },
-    });
-    void body;
-    return { token, trailId: id };
+    return { token, trailId: created.json().id as string };
   }
 
   const report = (trailId: string, id: string) => ({
@@ -467,6 +558,43 @@ describe('report upload', () => {
     });
     expect(response.json().accepted).toEqual([good]);
     expect(response.json().rejected).toEqual([{ id: orphan, reason: 'unknown_trail' }]);
+  });
+
+  it('rejects a malformed row without failing the rest of the batch', async () => {
+    // The device keeps a report queued until this endpoint names it, so
+    // refusing the whole batch over one row left that row stopping every
+    // later synchronisation, the catalogue included. An identifier built
+    // from the clock, which earlier versions of the application generated,
+    // is exactly how that happened.
+    const { token, trailId } = await publishedTrail();
+    const good = '55555555-5555-4555-8555-555555555555';
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/reports',
+      headers: auth(token),
+      payload: {
+        reports: [
+          ...report(trailId, good).reports,
+          { id: 'report-1762700002000', trailId, kind: 'otro', createdAt: '2026-11-08T12:00:00.000Z' },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().accepted).toEqual([good]);
+    expect(response.json().rejected).toEqual([
+      { id: 'report-1762700002000', reason: 'invalid_report' },
+    ]);
+  });
+
+  it('answers 400 only when the envelope itself is not a batch', async () => {
+    const { token } = await publishedTrail();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/reports',
+      headers: auth(token),
+      payload: { reports: [] },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it('marks which reports belong to the caller', async () => {

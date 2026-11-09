@@ -5,8 +5,6 @@
  *  provider must be called once per trail and per freshness window, not
  *  once per device that asks.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -14,6 +12,7 @@ jest.mock('../weather/openMeteo', () => ({ fetchForecast: jest.fn() }));
 
 import { buildApp } from '../app';
 import { pool } from '../db/pool';
+import { resetSchema } from './schema';
 import { CACHE_TTL_MS } from '../routes/forecast';
 import { fetchForecast } from '../weather/openMeteo';
 
@@ -23,11 +22,16 @@ const upstream = fetchForecast as jest.MockedFunction<typeof fetchForecast>;
 
 let app: FastifyInstance;
 
-const TRACK = [
-  { lat: -31.65, lon: -64.68, ele: 2100 },
-  { lat: -31.652, lon: -64.682, ele: 2160 },
-  { lat: -31.655, lon: -64.685, ele: 2240 },
-];
+/**
+ * A track the validation accepts, placed by `nth` so that two calls do not
+ * contribute the same route twice.
+ */
+const TRACK = (nth = 0) =>
+  Array.from({ length: 24 }, (_, i) => ({
+    lat: -31.65 - nth * 0.05 - i * 0.0004,
+    lon: -64.68 - i * 0.0004,
+    ele: 2100 + i * 4,
+  }));
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -40,9 +44,7 @@ const DAY = () => ({
 });
 
 beforeAll(async () => {
-  const sql = readFileSync(join(__dirname, '..', 'db', 'migrations', '001_initial.sql'), 'utf8');
-  await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  await pool.query(sql);
+  await resetSchema(pool);
   app = buildApp();
   await app.ready();
 });
@@ -68,23 +70,18 @@ async function published() {
     payload: { name: 'Luciana', email, password: 'Sierras2026!', level: 'intermediate' },
   });
   const token = registered.json().accessToken as string;
-  await pool.query("UPDATE users SET role = 'moderator' WHERE lower(email) = lower($1)", [email]);
 
-  const session = await app.inject({
-    method: 'POST',
-    url: '/api/auth/session',
-    payload: { email, password: 'Sierras2026!' },
-  });
-  const moderator = session.json().accessToken as string;
-
+  // A valid contribution is published by the system, so there is nothing to
+  // review and nobody to review it. Each call puts its trail somewhere else
+  // in the Sierras, because a second recording of the same route is now
+  // refused as a duplicate.
   const created = await app.inject({
     method: 'POST',
     url: '/api/trails',
-    headers: { authorization: `Bearer ${moderator}` },
-    payload: { name: 'Balcón Norte', points: TRACK },
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: `Balcón Norte ${counter}`, points: TRACK(counter) },
   });
-  void token;
-  return { token: moderator, trailId: created.json().id as string };
+  return { token, trailId: created.json().id as string };
 }
 
 const get = (app: FastifyInstance, trailId: string, token: string) =>
@@ -167,8 +164,9 @@ describe('caching', () => {
     await get(app, trailId, token);
 
     const [lat, lon] = upstream.mock.calls[0]!;
-    expect(lat).toBeCloseTo(TRACK[1]!.lat, 6);
-    expect(lon).toBeCloseTo(TRACK[1]!.lon, 6);
+    const middle = TRACK(counter)[12]!;
+    expect(lat).toBeCloseTo(middle.lat, 6);
+    expect(lon).toBeCloseTo(middle.lon, 6);
   });
 });
 

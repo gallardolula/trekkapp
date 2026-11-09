@@ -35,7 +35,21 @@ export interface TrailAttributes {
   difficulty: Level;
 }
 
-export type TrailStatus = 'published' | 'pending_review';
+/**
+ * Where a trail stands.
+ *
+ * `local` is a trail that exists only on the phone that imported it, and is
+ * the one state the server never stores. `withdrawn` is one that was in the
+ * shared catalogue and was taken out of it.
+ *
+ * There used to be a `pending_review` instead, for a trail waiting on a
+ * moderator. Nobody could hold that role and nothing could leave that
+ * state, and a review of a track on a screen could not establish what
+ * mattered anyway. The system validates a contribution and publishes or
+ * refuses it now, so the waiting state describes a process that no longer
+ * exists. See server/src/trails/validation.ts.
+ */
+export type TrailStatus = 'published' | 'withdrawn' | 'local';
 
 export interface Trail {
   id: string;
@@ -43,12 +57,18 @@ export interface Trail {
   description?: string;
   points: Point[];
   attributes: TrailAttributes;
-  /** A trail contributed by a hiker stays unpublished until reviewed. */
   status: TrailStatus;
 }
 
-/** Outcome of deciding whether a hiker may download a trail. */
-export interface DownloadDecision {
+/**
+ * Whether somebody may take on a trail, given the level they declared.
+ *
+ * Named for the attempt and not for the download, because the download was
+ * never what it was about. The gap between a trail's difficulty and what
+ * somebody says they walk matters at the moment they set out, and marking
+ * a trail for offline use is not that moment.
+ */
+export interface AttemptDecision {
   allowed: boolean;
   requiresConfirmation: boolean;
   reason?: string;

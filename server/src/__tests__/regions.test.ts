@@ -107,10 +107,8 @@ describe('the endpoints', () => {
     jest.resetModules();
     const { buildApp } = await import('../app');
     const { pool } = await import('../db/pool');
-    const { readFileSync } = await import('node:fs');
-    const sql = readFileSync(join(__dirname, '..', 'db', 'migrations', '001_initial.sql'), 'utf8');
-    await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-    await pool.query(sql);
+    const { resetSchema } = await import('./schema');
+    await resetSchema(pool);
 
     app = buildApp();
     await app.ready();
@@ -185,5 +183,48 @@ describe('the endpoints', () => {
       url: '/api/regions/prueba/tiles/x/1/1.pbf',
     });
     expect(response.statusCode).toBe(400);
+  });
+});
+
+describe('an archive replaced while the server runs', () => {
+  it('serves the new file rather than the one it had open', async () => {
+    // A handle keeps the file it was opened on even after that file is
+    // replaced, so regenerating an archive left the server handing out the
+    // previous one while reporting the version of the new one. The phone
+    // is told its map is current and given the old tiles.
+    const { readTile, describe: describeRegion, closeArchives: close } = await import(
+      '../tiles/archive'
+    );
+    const { writeFileSync: write } = await import('node:fs');
+    const path = join(directory, 'reemplazo.mbtiles');
+    const region = { ...REGION, id: 'reemplazo' };
+
+    const build = (zoom: number) => {
+      const db = new DatabaseSync(path);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS metadata (name TEXT, value TEXT);
+        CREATE TABLE IF NOT EXISTS tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB);
+      `);
+      // MBTiles counts rows from the bottom, so the row for y=1 is the
+      // flip of it at that zoom.
+      db.prepare('INSERT INTO tiles VALUES (?, ?, ?, ?)').run(zoom, 1, 2 ** zoom - 1 - 1, TILE);
+      db.close();
+    };
+
+    build(2);
+    expect(readTile(directory, 'reemplazo', 2, 1, 1)).not.toBeNull();
+    const before = describeRegion(directory, region).version;
+
+    // Replaced with an archive holding a different tile, as regenerating
+    // it does. The modification time has to move for the change to be
+    // noticeable at all.
+    write(path, Buffer.alloc(0));
+    build(3);
+    await new Promise((r) => setTimeout(r, 1100));
+    build(5);
+
+    expect(describeRegion(directory, region).version).not.toBe(before);
+    expect(readTile(directory, 'reemplazo', 5, 1, 1)).not.toBeNull();
+    close();
   });
 });

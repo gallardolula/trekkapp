@@ -7,20 +7,11 @@
  */
 import type { FastifyInstance } from 'fastify';
 
-import { haversineDistance } from '../../../src/domain/geo';
 import { computeAttributes } from '../../../src/domain/trail';
 import type { Point } from '../../../src/domain/types';
 import { pool, withTransaction } from '../db/pool';
-import { deltaQuerySchema, reviewSchema, trailSubmissionSchema } from '../schemas';
-
-// Coarse envelope of the Sierras de Córdoba. A contribution outside it is
-// not cartography this project serves, so it is refused at the door rather
-// than entering a moderation queue nobody can act on.
-const COVERED_REGION = { minLat: -33.6, maxLat: -30.5, minLon: -65.6, maxLon: -63.7 };
-
-// A track whose consecutive points imply a speed no walker reaches was
-// almost certainly recorded in a vehicle or is corrupt.
-const MAX_WALKING_SPEED_MS = 4.2; // around 15 km/h
+import { deltaQuerySchema, trailSubmissionSchema } from '../schemas';
+import { isDuplicateOf, validateGeometry } from '../trails/validation';
 
 interface TrailRow {
   id: string;
@@ -115,13 +106,19 @@ export async function trailRoutes(app: FastifyInstance): Promise<void> {
     '/api/trails/:id/track',
     { preHandler: [app.authenticate] },
     async (request, reply) => {
-      const { rows } = await pool.query<{ status: string }>(
-        'SELECT status FROM trails WHERE id = $1',
+      const { rows } = await pool.query<{ status: string; owner_id: string | null }>(
+        'SELECT status, owner_id FROM trails WHERE id = $1',
         [request.params.id],
       );
       const trail = rows[0];
       if (!trail) return reply.code(404).send({ error: 'not_found' });
-      if (trail.status !== 'published' && request.user!.role !== 'moderator') {
+
+      // A withdrawn trail stays reachable by whoever contributed it, so
+      // somebody whose route was taken out of the catalogue can still see
+      // it and still walk it. The rule used to name the moderator instead
+      // of the owner, which meant the one person who could not retrieve
+      // their own contribution was the person who made it.
+      if (trail.status !== 'published' && trail.owner_id !== request.user!.id) {
         return reply.code(404).send({ error: 'not_found' });
       }
 
@@ -147,7 +144,19 @@ export async function trailRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  /** A trail contributed by a hiker. It enters pending review, never published. */
+  /**
+   * A trail contributed by a hiker.
+   *
+   * Validated here and published, or refused with a reason. There is no
+   * queue and nobody to work it: what a reviewer could establish by looking
+   * at a track, these checks establish, and what they could not establish
+   * the reviewer could not either. See trails/validation.ts.
+   *
+   * A trail that passes carries an owner, and that is what the catalogue
+   * shows it by. Contributed and not verified on the ground is a different
+   * thing from the preloaded routes, and saying so is the honest part of
+   * dropping the review.
+   */
   app.post('/api/trails', { preHandler: [app.authenticate] }, async (request, reply) => {
     const parsed = trailSubmissionSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -155,8 +164,23 @@ export async function trailRoutes(app: FastifyInstance): Promise<void> {
     }
     const { name, description, points } = parsed.data;
 
-    const rejection = validateGeometry(points);
-    if (rejection) return reply.code(422).send({ error: 'invalid_track', reason: rejection });
+    const rejection = validateGeometry(points as Point[]);
+    if (rejection) {
+      return reply.code(422).send({
+        error: 'invalid_track',
+        reason: rejection.reason,
+        ...(rejection.atPoint !== undefined ? { atPoint: rejection.atPoint } : {}),
+      });
+    }
+
+    // Compared against what is published rather than against everything, so
+    // a contribution is never refused for matching a trail nobody can see.
+    const duplicate = await findDuplicate(points as Point[]);
+    if (duplicate) {
+      return reply
+        .code(409)
+        .send({ error: 'invalid_track', reason: 'duplicate_of_existing', trailId: duplicate });
+    }
 
     // Computed here, from the geometry, and never read from the request.
     const attributes = computeAttributes(points as Point[]);
@@ -166,7 +190,7 @@ export async function trailRoutes(app: FastifyInstance): Promise<void> {
         `INSERT INTO trails
            (name, description, distance_m, elevation_gain_m, effort_index,
             difficulty, status, owner_id)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending_review', $7)
+         VALUES ($1, $2, $3, $4, $5, $6, 'published', $7)
          RETURNING id`,
         [
           name,
@@ -183,49 +207,8 @@ export async function trailRoutes(app: FastifyInstance): Promise<void> {
       return trailId;
     });
 
-    return reply.code(201).send({ id, status: 'pending_review', attributes });
+    return reply.code(201).send({ id, status: 'published', attributes });
   });
-
-  // ------------------------------------------------------------ moderation --
-
-  app.get(
-    '/api/moderation/trails',
-    { preHandler: [app.requireModerator] },
-    async (_request, reply) => {
-      const { rows } = await pool.query<TrailRow & { owner_id: string | null }>(
-        `SELECT id, name, description, distance_m, elevation_gain_m, effort_index,
-                difficulty, status, updated_at, ${CURSOR('updated_at')} AS cursor_value, owner_id
-           FROM trails
-          WHERE status = 'pending_review'
-          ORDER BY created_at`,
-      );
-      return reply.send({ trails: rows.map(present) });
-    },
-  );
-
-  app.post<{ Params: { id: string } }>(
-    '/api/moderation/trails/:id/review',
-    { preHandler: [app.requireModerator] },
-    async (request, reply) => {
-      const parsed = reviewSchema.safeParse(request.body);
-      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
-
-      const { rows } = await pool.query<{ id: string; status: string }>(
-        `UPDATE trails
-            SET status = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4
-          WHERE id = $1 AND status = 'pending_review'
-          RETURNING id, status`,
-        [request.params.id, parsed.data.decision, request.user!.id, parsed.data.note ?? null],
-      );
-      const trail = rows[0];
-      // Either it does not exist or somebody else already reviewed it. The
-      // condition on the UPDATE is what stops two moderators from both
-      // deciding on the same submission.
-      if (!trail) return reply.code(409).send({ error: 'not_pending' });
-
-      return reply.send({ id: trail.id, status: trail.status });
-    },
-  );
 }
 
 async function insertPoints(
@@ -247,30 +230,41 @@ async function insertPoints(
   );
 }
 
-/** Returns a rejection code, or null when the geometry is plausible. */
-export function validateGeometry(points: Point[]): string | null {
-  for (const p of points) {
-    if (
-      p.lat < COVERED_REGION.minLat ||
-      p.lat > COVERED_REGION.maxLat ||
-      p.lon < COVERED_REGION.minLon ||
-      p.lon > COVERED_REGION.maxLon
-    ) {
-      return 'outside_covered_region';
-    }
-  }
 
-  // Speed is only checkable where both points carry a timestamp, which a
-  // track exported from some tools does not.
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
-    if (!a.time || !b.time) continue;
-    const seconds = (Date.parse(b.time) - Date.parse(a.time)) / 1000;
-    if (seconds <= 0) continue;
-    if (haversineDistance(a, b) / seconds > MAX_WALKING_SPEED_MS) {
-      return 'implausible_speed';
-    }
+/**
+ * The published trail this track is a second recording of, if there is one.
+ *
+ * Compared only against trails whose enclosing box overlaps, because
+ * comparing every point of a candidate against every point of the whole
+ * catalogue would make a contribution cost more the more the catalogue
+ * grows, and two routes in different valleys cannot be the same route.
+ */
+async function findDuplicate(points: Point[]): Promise<string | null> {
+  const lats = points.map((p) => p.lat);
+  const lons = points.map((p) => p.lon);
+  const margin = 0.01; // roughly a kilometre, the tolerance of the comparison
+
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT DISTINCT t.id
+       FROM trails t
+       JOIN track_points p ON p.trail_id = t.id
+      WHERE t.status = 'published'
+        AND p.lat BETWEEN $1 AND $2
+        AND p.lon BETWEEN $3 AND $4`,
+    [
+      Math.min(...lats) - margin,
+      Math.max(...lats) + margin,
+      Math.min(...lons) - margin,
+      Math.max(...lons) + margin,
+    ],
+  );
+
+  for (const row of rows) {
+    const existing = await pool.query<{ lat: number; lon: number }>(
+      'SELECT lat, lon FROM track_points WHERE trail_id = $1 ORDER BY position',
+      [row.id],
+    );
+    if (isDuplicateOf(points, existing.rows)) return row.id;
   }
 
   return null;
