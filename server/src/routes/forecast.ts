@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 
 import { pool } from '../db/pool';
-import { fetchForecast, type Forecast } from '../weather/openMeteo';
+import { fetchForecast, type Forecast, type HourlyForecast } from '../weather/openMeteo';
 
 /**
  * How long a stored forecast is served before the provider is asked again.
@@ -88,8 +88,18 @@ export async function forecastRoutes(app: FastifyInstance): Promise<void> {
         [trailId, String(CACHE_TTL_MS)],
       );
 
-      if (fresh.rowCount && fresh.rowCount > 0) {
-        return reply.send({ trailId, days: fresh.rows.map(present), source: 'cache' });
+      // Served from the cache only when the hours are cached too. The
+      // daily figures live in the database and the hours do not, so a hit
+      // on one and a miss on the other would answer with a forecast and no
+      // hours at all, which is most of what a trail's page shows.
+      const hours = cachedHours(trailId);
+      if (fresh.rowCount && fresh.rowCount > 0 && hours) {
+        return reply.send({
+          trailId,
+          days: fresh.rows.map(present),
+          hourly: ahead(hours),
+          source: 'cache',
+        });
       }
 
       const point = await midpoint(pool, trailId);
@@ -117,16 +127,49 @@ export async function forecastRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await store(trailId, days);
+      rememberHours(trailId, hourly);
 
       const obtainedAt = new Date().toISOString();
       return reply.send({
         trailId,
         days: days.map((forecast) => ({ forecast, obtainedAt })),
-        hourly,
+        hourly: ahead(hourly),
         source: 'upstream',
       });
     },
   );
+}
+
+/**
+ * The hourly series, kept in memory rather than in the database.
+ *
+ * An hour is worth reading while it is still ahead of the hiker and not
+ * afterwards, which is a different lifetime from the daily figures. Those
+ * are what the warnings are weighed against and what a device needs with
+ * no connection, so they are stored; these are not.
+ *
+ * Losing them when the process restarts costs one upstream call.
+ */
+const hourCache = new Map<string, { at: number; hours: HourlyForecast[] }>();
+
+function cachedHours(trailId: string): HourlyForecast[] | null {
+  const entry = hourCache.get(trailId);
+  if (!entry || Date.now() - entry.at > CACHE_TTL_MS) return null;
+  return entry.hours;
+}
+
+function rememberHours(trailId: string, hours: HourlyForecast[]): void {
+  // Recorded even when the provider sent no hours. What the window limits
+  // is how often this server asks, not what the answer contained, and
+  // remembering only successful answers meant a provider that returns no
+  // hourly series is asked again on every single request.
+  hourCache.set(trailId, { at: Date.now(), hours });
+}
+
+/** Drops the hours already behind, which nobody reads a forecast for. */
+function ahead(hours: HourlyForecast[]): HourlyForecast[] {
+  const from = Date.now() - 30 * 60_000;
+  return hours.filter((h) => new Date(h.time).getTime() >= from).slice(0, 24);
 }
 
 async function store(trailId: string, days: Forecast[]): Promise<void> {

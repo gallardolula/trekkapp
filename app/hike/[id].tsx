@@ -584,6 +584,10 @@ export default function Hike() {
           ref={sheet}
           index={0}
           snapPoints={SNAP_POINTS}
+          // Off, and it has to be. Version 5 sizes a sheet to its content
+          // by default, which fights explicit stops: the sheet moves
+          // between them and renders nothing inside.
+          enableDynamicSizing={false}
           enablePanDownToClose={false}
           backgroundStyle={{ backgroundColor: c.background }}
           handleIndicatorStyle={{ backgroundColor: c.border, width: 44 }}

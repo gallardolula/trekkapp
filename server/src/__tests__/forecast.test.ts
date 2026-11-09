@@ -214,3 +214,63 @@ describe('a trail without geometry', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 });
+
+describe('the hours ahead', () => {
+  const HOURS = Array.from({ length: 30 }, (_, i) => ({
+    time: new Date(Date.now() + i * 3600_000).toISOString(),
+    tempC: 14 + i,
+    rainChance: i * 2,
+    windKmh: 10 + i,
+  }));
+
+  it('passes the hourly series through on a fresh answer', async () => {
+    const { token, trailId } = await published();
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: HOURS });
+
+    const response = await get(app, trailId, token);
+    expect(response.json().source).toBe('upstream');
+    expect(response.json().hourly.length).toBeGreaterThan(0);
+  });
+
+  it('answers the cached request with hours too', async () => {
+    // The days live in the database and the hours do not, so a hit on one
+    // and a miss on the other would serve a forecast with no hours at all,
+    // which is most of what a trail's page shows.
+    const { token, trailId } = await published();
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: HOURS });
+
+    await get(app, trailId, token);
+    const second = await get(app, trailId, token);
+
+    expect(second.json().source).toBe('cache');
+    expect(second.json().hourly.length).toBeGreaterThan(0);
+  });
+
+  it('drops the hours already behind the hiker', async () => {
+    const { token, trailId } = await published();
+    upstream.mockResolvedValue({
+      daily: [DAY()],
+      hourly: [
+        { time: new Date(Date.now() - 5 * 3600_000).toISOString(), tempC: 9, rainChance: 0, windKmh: 4 },
+        ...HOURS,
+      ],
+    });
+
+    const response = await get(app, trailId, token);
+    const first = new Date(response.json().hourly[0].time).getTime();
+    expect(first).toBeGreaterThan(Date.now() - 60 * 60_000);
+  });
+
+  it('still honours the window when the provider sends no hours', async () => {
+    // Otherwise a provider without an hourly series defeats the cache and
+    // is asked again on every request.
+    const { token, trailId } = await published();
+    upstream.mockResolvedValue({ daily: [DAY()], hourly: [] });
+
+    await get(app, trailId, token);
+    const second = await get(app, trailId, token);
+
+    expect(second.json().source).toBe('cache');
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+});
