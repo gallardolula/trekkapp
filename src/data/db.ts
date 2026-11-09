@@ -8,6 +8,10 @@ import * as SQLite from 'expo-sqlite';
 
 import { uuidFromHex } from '../domain/identity';
 import { computeAttributes } from '../domain/trail';
+import {
+  readPreferences as parsePreferences,
+  writePreferences,
+} from '../domain/preferences';
 import { Forecast, Level, Point, Trail, TrailStatus } from '../domain/types';
 import { MIGRATIONS, PREVIOUS_ACCOUNT_CLEANUP, retargetTrail } from './schema';
 
@@ -72,6 +76,8 @@ export interface Profile {
   email: string;
   level: Level;
   theme: Theme;
+  /** Empty when they were asked and chose nothing, null when never asked. */
+  preferences: string[] | null;
 }
 
 /** Returns the hiker's profile, or null when they have not signed up yet. */
@@ -82,13 +88,15 @@ export async function readProfile(): Promise<Profile | null> {
     email: string | null;
     level: Level;
     theme: Theme | null;
-  }>('SELECT name, email, level, theme FROM profile WHERE id = 1');
+    preferences: string | null;
+  }>('SELECT name, email, level, theme, preferences FROM profile WHERE id = 1');
   if (!row) return null;
   return {
     name: row.name ?? '',
     email: row.email ?? '',
     level: row.level,
     theme: row.theme ?? 'light',
+    preferences: row.preferences === null ? null : parsePreferences(row.preferences),
   };
 }
 
@@ -118,6 +126,22 @@ export async function saveProfile(p: {
     p.email,
     p.level,
     p.theme ?? null,
+    now(),
+  );
+}
+
+/**
+ * Records what kind of outing the hiker is after.
+ *
+ * An empty list is written rather than left null, because somebody who was
+ * asked and chose nothing is in a different state from somebody who was
+ * never asked, and only the second should be asked again.
+ */
+export async function savePreferences(ids: string[]): Promise<void> {
+  const db = await openDatabase();
+  await db.runAsync(
+    'UPDATE profile SET preferences = ?, updated_at = ? WHERE id = 1',
+    writePreferences(ids),
     now(),
   );
 }

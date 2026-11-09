@@ -14,7 +14,7 @@ import {
   issueCode,
 } from '../auth/codes';
 import { hashPassword, passwordProblems, verifyPassword } from '../auth/password';
-import { sendMail, verificationMessage } from '../mail/mailer';
+import { lockMessage, recoveryMessage, sendMail, verificationMessage } from '../mail/mailer';
 import {
   issueRefreshToken,
   revokeAllSessions,
@@ -26,6 +26,8 @@ import {
   profileUpdateSchema,
   refreshSchema,
   registerSchema,
+  passwordResetRequestSchema,
+  passwordResetSchema,
   resendCodeSchema,
   sessionSchema,
   verifyCodeSchema,
@@ -151,7 +153,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user) return reply.code(400).send({ error: 'invalid_code', attemptsLeft: 0 });
     if (user.verified) return reply.code(409).send({ error: 'already_verified' });
 
-    const result = await checkCode(user.id, code, email);
+    const result = await checkCode(user.id, code, email, 'verify_email');
     if (!result.ok) {
       if (result.reason === 'wrong') {
         return reply.code(400).send({ error: 'invalid_code', attemptsLeft: result.attemptsLeft });
@@ -196,7 +198,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     };
     if (!user || user.verified) return reply.code(202).send(accepted);
 
-    const wait = await cooldownRemaining(user.id);
+    const wait = await cooldownRemaining(user.id, 'verify_email');
     if (wait > 0) return reply.code(429).send({ error: 'too_soon', retryAfterSeconds: wait });
 
     await sendCode(user.id, email);
@@ -244,7 +246,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     // ends up. A fresh code goes out, subject to the same cooldown, and the
     // device is sent to the screen that asks for it.
     if (user.email_verified_at === null) {
-      const wait = await cooldownRemaining(user.id);
+      const wait = await cooldownRemaining(user.id, 'verify_email');
       if (wait === 0) await sendCode(user.id, user.email);
       return reply
         .code(403)
@@ -266,6 +268,100 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         email: user.email,
         level: user.level,
       },
+      accessToken,
+      refreshToken: refresh.token,
+    });
+  });
+
+  /**
+   * Asks for a code to choose a new password.
+   *
+   * Accepted whatever the address turns out to be, and nothing is sent when
+   * there is nothing to send. A different answer would turn this into a way
+   * to ask which addresses are registered, which is the one thing a
+   * recovery endpoint must not become.
+   *
+   * Only an account whose address was proved can be recovered. An unproved
+   * one has a registration to finish instead, and signing in already sends
+   * somebody there; allowing recovery on it would be a second way to claim
+   * an address nobody has held. See docs/adr/0017.
+   */
+  app.post('/api/auth/password/forgot', async (request, reply) => {
+    const parsed = passwordResetRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+    const { email } = parsed.data;
+
+    const { rows } = await pool.query<{ id: string; verified: boolean }>(
+      'SELECT id, email_verified_at IS NOT NULL AS verified FROM users WHERE lower(email) = lower($1)',
+      [email],
+    );
+    const user = rows[0];
+    const accepted = { status: 'recovery_sent', email, expiresInMinutes: CODE_TTL_MINUTES };
+
+    if (!user || !user.verified) return reply.code(202).send(accepted);
+
+    const wait = await cooldownRemaining(user.id, 'reset_password');
+    if (wait > 0) return reply.code(429).send({ error: 'too_soon', retryAfterSeconds: wait });
+
+    const code = await issueCode(user.id, email, 'reset_password');
+    await sendMail({ to: email, ...recoveryMessage(code, CODE_TTL_MINUTES) });
+    return reply.code(202).send(accepted);
+  });
+
+  /**
+   * Sets the new password and hands back a session.
+   *
+   * Every other session of the account is revoked first. Somebody
+   * recovering a password may be doing it because another person has the
+   * old one, and leaving that person's refresh token alive would make the
+   * whole exercise pointless.
+   *
+   * A session is issued rather than sending them back to sign in. They have
+   * just proved they hold the address and they have just chosen the
+   * password, which is strictly more than signing in asks for.
+   */
+  app.post('/api/auth/password/reset', async (request, reply) => {
+    const parsed = passwordResetSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+    const { email, code, password } = parsed.data;
+
+    const problems = passwordProblems(password);
+    if (problems.length > 0) return reply.code(400).send({ error: 'weak_password', problems });
+
+    const { rows } = await pool.query<UserRow & { verified: boolean }>(
+      `SELECT id, name, email, level, email_verified_at IS NOT NULL AS verified
+         FROM users WHERE lower(email) = lower($1)`,
+      [email],
+    );
+    const user = rows[0];
+
+    // An unknown or unproved address is answered as a wrong code, for the
+    // same reason the request above is always accepted.
+    if (!user || !user.verified) {
+      return reply.code(400).send({ error: 'invalid_code', attemptsLeft: 0 });
+    }
+
+    const result = await checkCode(user.id, code, email, 'reset_password');
+    if (!result.ok) {
+      if (result.reason === 'wrong') {
+        return reply.code(400).send({ error: 'invalid_code', attemptsLeft: result.attemptsLeft });
+      }
+      return reply.code(410).send({ error: result.reason });
+    }
+
+    const passwordHash = await hashPassword(password);
+    await pool.query(
+      `UPDATE users SET password_hash = $2, failed_attempts = 0, locked_until = NULL
+        WHERE id = $1`,
+      [user.id, passwordHash],
+    );
+    await revokeAllSessions(user.id);
+
+    const refresh = await issueRefreshToken(user.id);
+    const accessToken = await signAccessToken({ userId: user.id });
+
+    return reply.code(201).send({
+      user: { id: user.id, name: user.name, email: user.email, level: user.level },
       accessToken,
       refreshToken: refresh.token,
     });
@@ -345,7 +441,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
  * account they may already have been told was created.
  */
 async function sendCode(userId: string, email: string): Promise<void> {
-  const code = await issueCode(userId, email);
+  const code = await issueCode(userId, email, 'verify_email');
   await sendMail({ to: email, ...verificationMessage(code, CODE_TTL_MINUTES) });
 }
 
@@ -359,4 +455,13 @@ async function registerFailure(user: UserRow): Promise<void> {
       WHERE id = $1`,
     [user.id, locked ? 0 : attempts, locked, String(LOCK_MINUTES)],
   );
+
+  // The owner is told, because they are the only person who can tell the
+  // two cases apart. Five mistyped attempts of their own need no action; five
+  // from somebody else are the reason this message exists. Sent on the lock
+  // and not on each failure, so a forgotten password does not produce five
+  // mails.
+  if (locked) {
+    await sendMail({ to: user.email, ...lockMessage(LOCK_MINUTES) });
+  }
 }

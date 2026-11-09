@@ -51,6 +51,24 @@ export const resendCodeSchema = z.object({
   email: z.email().max(254),
 });
 
+/** Asking for a code to choose a new password. */
+export const passwordResetRequestSchema = z.object({
+  email: z.email().max(254),
+});
+
+/**
+ * Choosing the new password.
+ *
+ * The policy itself is checked in the route, which reports every failing
+ * rule at once rather than the first one Zod happens to reach, exactly as
+ * registration does.
+ */
+export const passwordResetSchema = z.object({
+  email: z.email().max(254),
+  code: z.string().trim().regex(/^[0-9]{6}$/),
+  password: z.string().min(1).max(200),
+});
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(1).max(500),
 });
@@ -110,6 +128,8 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type SessionInput = z.infer<typeof sessionSchema>;
 export type VerifyCodeInput = z.infer<typeof verifyCodeSchema>;
 export type ResendCodeInput = z.infer<typeof resendCodeSchema>;
+export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
+export type PasswordResetInput = z.infer<typeof passwordResetSchema>;
 export type TrailSubmissionInput = z.infer<typeof trailSubmissionSchema>;
 export type ReportInput = z.infer<typeof reportSchema>;
 export type DeltaQuery = z.infer<typeof deltaQuerySchema>;

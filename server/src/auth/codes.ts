@@ -27,6 +27,16 @@ import type { PoolClient } from 'pg';
 import { pool } from '../db/pool';
 import { hashPassword, verifyPassword } from './password';
 
+/**
+ * What spending a code does.
+ *
+ * Both kinds prove the same thing, that somebody can read what was sent to
+ * the address. What they are then allowed to do with that proof is the only
+ * difference, and it is enough of one that a code issued for the first must
+ * never be accepted for the second.
+ */
+export type CodePurpose = 'verify_email' | 'reset_password';
+
 /** How long a code is good for. */
 export const CODE_TTL_MINUTES = 15;
 
@@ -50,6 +60,7 @@ function freshCode(): string {
 export async function issueCode(
   userId: string,
   sentTo: string,
+  purpose: CodePurpose,
   client: PoolClient | typeof pool = pool,
 ): Promise<string> {
   const code = freshCode();
@@ -58,13 +69,14 @@ export async function issueCode(
   // The live code is marked spent rather than deleted, so the row that says
   // a code was issued at all survives for as long as the account does.
   await client.query(
-    'UPDATE email_codes SET consumed_at = now() WHERE user_id = $1 AND consumed_at IS NULL',
-    [userId],
+    `UPDATE email_codes SET consumed_at = now()
+      WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL`,
+    [userId, purpose],
   );
   await client.query(
-    `INSERT INTO email_codes (user_id, code_hash, sent_to, expires_at)
-     VALUES ($1, $2, $3, now() + ($4 || ' minutes')::interval)`,
-    [userId, hash, sentTo, String(CODE_TTL_MINUTES)],
+    `INSERT INTO email_codes (user_id, code_hash, sent_to, purpose, expires_at)
+     VALUES ($1, $2, $3, $4, now() + ($5 || ' minutes')::interval)`,
+    [userId, hash, sentTo, purpose, String(CODE_TTL_MINUTES)],
   );
 
   return code;
@@ -76,14 +88,14 @@ export async function issueCode(
  * Read from the live code's own age, so a restart of the server does not
  * reset the cooldown and a caller cannot get a fresh code per process.
  */
-export async function cooldownRemaining(userId: string): Promise<number> {
+export async function cooldownRemaining(userId: string, purpose: CodePurpose): Promise<number> {
   const { rows } = await pool.query<{ seconds: number }>(
     `SELECT ceil($2 - extract(epoch FROM now() - created_at))::int AS seconds
        FROM email_codes
-      WHERE user_id = $1 AND consumed_at IS NULL
+      WHERE user_id = $1 AND purpose = $3 AND consumed_at IS NULL
       ORDER BY created_at DESC
       LIMIT 1`,
-    [userId, RESEND_COOLDOWN_SECONDS],
+    [userId, RESEND_COOLDOWN_SECONDS, purpose],
   );
   return Math.max(0, rows[0]?.seconds ?? 0);
 }
@@ -105,13 +117,19 @@ interface CodeRow {
  * The attempt is recorded before the answer is returned, so a caller that
  * abandons the request mid-way has still used up a guess.
  */
-export async function checkCode(userId: string, code: string, sentTo: string): Promise<CheckResult> {
+export async function checkCode(
+  userId: string,
+  code: string,
+  sentTo: string,
+  purpose: CodePurpose,
+): Promise<CheckResult> {
   const { rows } = await pool.query<CodeRow>(
     `SELECT id, code_hash, attempts, (expires_at <= now()) AS expired
        FROM email_codes
-      WHERE user_id = $1 AND consumed_at IS NULL AND lower(sent_to) = lower($2)
+      WHERE user_id = $1 AND purpose = $3 AND consumed_at IS NULL
+        AND lower(sent_to) = lower($2)
       LIMIT 1`,
-    [userId, sentTo],
+    [userId, sentTo, purpose],
   );
   const row = rows[0];
   if (!row) return { ok: false, reason: 'no_code', attemptsLeft: 0 };

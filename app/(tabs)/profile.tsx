@@ -196,18 +196,11 @@ export default function Profile() {
           );
         })}
       </View>
-      <Text style={s.hint}>
-        Determina cuándo la aplicación pide una confirmación antes de descargar un sendero.
-      </Text>
 
       <Text style={s.section}>Apariencia</Text>
       <View style={s.switchRow}>
         <View style={{ flex: 1 }}>
           <Text style={s.switchTitle}>Modo oscuro</Text>
-          <Text style={s.switchDetail}>
-            Reduce el consumo en pantallas OLED y preserva la visión nocturna durante un recorrido
-            en penumbra.
-          </Text>
         </View>
         <Switch value={mode === 'dark'} onValueChange={toggle} />
       </View>
@@ -234,12 +227,7 @@ export default function Profile() {
       </View>
 
       <Text style={s.section}>Mapas sin conexión</Text>
-      {!regionsSupported() ? (
-        <Text style={s.hint}>
-          El mapa necesita la aplicación compilada. En Expo Go el recorrido muestra la traza
-          esquemática, sin cartografía.
-        </Text>
-      ) : regions.length === 0 ? (
+      {!regionsSupported() || regions.length === 0 ? (
         <Text style={s.hint}>Sincronizá para ver las regiones disponibles.</Text>
       ) : (
         regions.map((r) => {
@@ -359,7 +347,6 @@ const styles = (c: Palette) =>
       padding: sp.lg,
     },
     switchTitle: { color: c.text, fontWeight: '700', fontSize: 14 },
-    switchDetail: { color: c.mutedText, fontSize: 12.5, marginTop: 2, lineHeight: 18 },
 
     card: {
       backgroundColor: c.surface,
