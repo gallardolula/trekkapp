@@ -28,6 +28,7 @@ is never rewritten: a decision that changes is superseded by a new record.
 | [0013](./0013-catalogue-generated-from-openstreetmap.md) | The installed catalogue is generated from OpenStreetMap | Accepted | Catalogue |
 | [0014](./0014-photographs-stay-on-the-device.md) | Photographs stay on the device that took them | Accepted | Mobile app, privacy |
 | [0015](./0015-offline-identity-is-a-claim.md) | Offline, identity is a claim and not a proof | Accepted | Security, sync |
+| [0016](./0016-an-address-is-proven-before-the-account-exists.md) | An address is proven before the account exists | Accepted | Security, accounts |
 
 ## Writing a new record
 

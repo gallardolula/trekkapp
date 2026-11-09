@@ -246,8 +246,10 @@ imported rather than reimplemented, so the two cannot drift.
 
 | Endpoint | Method | Purpose | Auth | Status |
 | --- | --- | --- | --- | --- |
-| `/api/auth/register` | POST | Account creation | Public | Built |
-| `/api/auth/session` | POST | Sign in | Public | Built |
+| `/api/auth/register` | POST | Starts an account and sends a code to the address ([ADR-0016](./adr/0016-an-address-is-proven-before-the-account-exists.md)) | Public | Built |
+| `/api/auth/register/verify` | POST | Confirms the address and issues the first session | Public | Built |
+| `/api/auth/register/resend` | POST | Sends another code, at most one a minute | Public | Built |
+| `/api/auth/session` | POST | Sign in. Answers 403 and sends a code when the address was never confirmed | Public | Built |
 | `/api/auth/refresh` | POST | Exchange a refresh token, rotating it | Public | Built |
 | `/api/auth/logout` | POST | Revoke every session of the account | Required | Built |
 | `/api/auth/me` | GET, PATCH | Read and update the hiker's own profile | Required | Built |
@@ -256,8 +258,7 @@ imported rather than reimplemented, so the two cannot drift.
 | `/api/trails` | POST | Submit a contributed trail | Required | Built |
 | `/api/reports` | POST | Submit trail-condition reports (idempotent) | Required | Built |
 | `/api/reports` | GET | Reports delta since cursor, each row flagged as the caller's own or not | Required | Built |
-| `/api/moderation/trails` | GET | Review queue for contributed trails | Moderator role | Built |
-| `/api/moderation/trails/:id/review` | POST | Approve or reject a submission | Moderator role | Built |
+
 | `/api/trails/:id/forecast` | GET | Cached forecast for the trail's coordinates | Required | Built |
 | `/api/regions` | GET | Available offline tile regions and versions | Required | Built |
 | `/api/regions/:id/style.json` | GET | MapLibre style for a region | Public | Built |
@@ -277,7 +278,7 @@ synchronisation, indefinitely.
 
 | Concern | Decision |
 | --- | --- |
-| Contributed trail validation | Point count, bounding box within the covered region, self-intersection and implausible speed checks before entering moderation |
+| Contributed trail validation | Point count, bounding box within the covered region, self-intersection and implausible speed checks. A submission that passes is published, and one that fails is refused with the reason ([ADR-0011](./adr/0011-system-validated-contributions.md)) |
 | Derived attributes | Recomputed server-side on ingest; client values are never trusted ([ADR-0003](./adr/0003-derived-attributes-computed-on-write.md)) |
 | Forecast caching | Per trail and date, TTL 3 h; the upstream provider is never called per device. Asked about the midpoint of the track, not its start. When the provider does not answer, anything stored is served and labelled stale rather than withheld |
 | Rate limiting | Per account and per IP on write endpoints |
@@ -293,7 +294,7 @@ Storage details: [data-model.md § Server model](./data-model.md#5-server-model-
 | Authentication | Email and password, Argon2id hashing, JWT access token with refresh rotation |
 | Token storage | `expo-secure-store` (Keychain / Keystore), never `AsyncStorage` |
 | Transport | HTTPS only; certificate pinning deferred, tracked below |
-| Authorisation | Roles: hiker, moderator. Contributed trails and reports are owner-scoped |
+| Authorisation | One role, hiker. Contributed trails and reports are owner-scoped |
 | Input validation | Schema validation at the API boundary; the app additionally validates imported GPX before persisting |
 | Location data | Recorded tracks stay on the device unless the hiker explicitly publishes them |
 | Data at rest | SQLite unencrypted for the prototype; stored data is trail geometry and the user's own notes. SQLCipher is a documented future step |

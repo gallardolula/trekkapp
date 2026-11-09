@@ -11,6 +11,10 @@
  *  showing the end read as a conversation. Nothing is sent until the last
  *  one, so the whole thing is still a single request.
  *
+ *  It does not finish the registration. The server answers with nothing
+ *  usable and sends a code to the address, and the screen that asks for it
+ *  is where the session begins. See docs/adr/0016.
+ *
  *  The declared level is asked here rather than later because it decides
  *  when the application warns somebody before downloading a trail beyond
  *  what they said they walk.
@@ -28,11 +32,10 @@ import {
 } from 'react-native';
 
 import { requestPublic } from '../src/data/api';
-import { adoptAccount, readProfile } from '../src/data/db';
-import { saveTokens } from '../src/data/session';
+import { readProfile } from '../src/data/db';
 import { Level } from '../src/domain/types';
 import { Button, Field, Notice, Question, StepBar } from '../src/ui/forms';
-import { confirmHandover, HANDOVER_WARNING, reportHandover } from '../src/ui/handover';
+import { confirmHandover, HANDOVER_WARNING } from '../src/ui/handover';
 import { difficultyColour, LEVEL_LABEL, Palette, sp, useTheme } from '../src/ui/theme';
 
 const LEVELS: { level: Level; detail: string }[] = [
@@ -130,29 +133,22 @@ export default function SignUp() {
 
     setWorking(true);
     try {
-      const created = await requestPublic<{
-        user: { id: string };
-        accessToken: string;
-        refreshToken: string;
-      }>('/api/auth/register', {
-        method: 'POST',
-        body: { name: name.trim(), email: email.trim().toLowerCase(), password, level },
-      });
+      const address = email.trim().toLowerCase();
+      const started = await requestPublic<{ email: string; expiresInMinutes: number }>(
+        '/api/auth/register',
+        {
+          method: 'POST',
+          body: { name: name.trim(), email: address, password, level },
+        },
+      );
 
-      await saveTokens({
-        accessToken: created.accessToken,
-        refreshToken: created.refreshToken,
+      // Nothing is stored here any more. The account exists on the server
+      // but holds no session, and the next screen is where the code turns
+      // it into one.
+      router.replace({
+        pathname: '/verify',
+        params: { email: started.email, minutes: String(started.expiresInMinutes) },
       });
-      const { replaced } = await adoptAccount({
-        userId: created.user.id,
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        level,
-      });
-      if (replaced && !occupied) reportHandover();
-
-      refresh();
-      router.replace('/home');
     } catch (error) {
       const code = (error as { code?: string }).code;
       // Whatever went wrong belongs to a step, so the person is taken back

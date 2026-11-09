@@ -125,6 +125,18 @@ export default function SignIn() {
       refresh();
       router.replace('/home');
     } catch (error) {
+      // The password was right and the address was never confirmed, which
+      // is where somebody who closed the application mid registration ends
+      // up. The server has already sent a fresh code, so this is not an
+      // error to read but the rest of the registration to finish.
+      if (error instanceof ApiError && error.code === 'email_not_verified') {
+        const pending = (error.detail as { email?: string } | undefined)?.email;
+        router.replace({
+          pathname: '/verify',
+          params: { email: pending ?? email.trim().toLowerCase() },
+        });
+        return;
+      }
       setServerError(explain(error));
     } finally {
       setWorking(false);

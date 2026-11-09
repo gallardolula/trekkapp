@@ -7,7 +7,14 @@
  */
 import type { FastifyInstance } from 'fastify';
 
+import {
+  checkCode,
+  CODE_TTL_MINUTES,
+  cooldownRemaining,
+  issueCode,
+} from '../auth/codes';
 import { hashPassword, passwordProblems, verifyPassword } from '../auth/password';
+import { sendMail, verificationMessage } from '../mail/mailer';
 import {
   issueRefreshToken,
   revokeAllSessions,
@@ -15,7 +22,14 @@ import {
   signAccessToken,
 } from '../auth/tokens';
 import { pool, withTransaction } from '../db/pool';
-import { profileUpdateSchema, refreshSchema, registerSchema, sessionSchema } from '../schemas';
+import {
+  profileUpdateSchema,
+  refreshSchema,
+  registerSchema,
+  resendCodeSchema,
+  sessionSchema,
+  verifyCodeSchema,
+} from '../schemas';
 import type { Level } from '../../../src/domain/types';
 
 const LOCK_AFTER_FAILURES = 5;
@@ -29,9 +43,20 @@ interface UserRow {
   level: Level;
   failed_attempts: number;
   locked_until: Date | null;
+  email_verified_at: Date | null;
 }
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
+  /**
+   * Starts a registration, which no longer finishes here.
+   *
+   * The account row is written and nothing is handed back. An address is
+   * a claim until somebody proves they can read what is sent to it, and
+   * this endpoint used to return a usable pair of tokens the instant a
+   * form was submitted, so anybody could sign up as anybody.
+   *
+   * See docs/adr/0016.
+   */
   app.post('/api/auth/register', async (request, reply) => {
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -48,25 +73,38 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const passwordHash = await hashPassword(password);
 
+    // An address carrying a verified account is taken and that is the end of
+    // it. One carrying an unverified account is not: nobody has proved they
+    // hold it, so the registration arriving now replaces the one that was
+    // abandoned. Without this, registering with somebody else's address and
+    // never confirming it would keep them out of their own for good.
+    const existing = await pool.query<{ id: string; verified: boolean }>(
+      'SELECT id, email_verified_at IS NOT NULL AS verified FROM users WHERE lower(email) = lower($1)',
+      [email],
+    );
+    const held = existing.rows[0];
+    if (held?.verified) return reply.code(409).send({ error: 'email_taken' });
+
+    let userId: string;
     try {
-      const result = await withTransaction(async (client) => {
+      userId = await withTransaction(async (client) => {
+        if (held) {
+          await client.query(
+            `UPDATE users
+                SET email = $2, password_hash = $3, name = $4, level = $5,
+                    failed_attempts = 0, locked_until = NULL
+              WHERE id = $1`,
+            [held.id, email, passwordHash, name, level],
+          );
+          return held.id;
+        }
         const { rows } = await client.query<{ id: string }>(
           `INSERT INTO users (email, password_hash, name, level)
            VALUES ($1, $2, $3, $4)
            RETURNING id`,
           [email, passwordHash, name, level],
         );
-        const user = rows[0]!;
-        const refresh = await issueRefreshToken(user.id, client);
-        return { user, refresh };
-      });
-
-      const accessToken = await signAccessToken({ userId: result.user.id });
-
-      return reply.code(201).send({
-        user: { id: result.user.id, name, email, level },
-        accessToken,
-        refreshToken: result.refresh.token,
+        return rows[0]!.id;
       });
     } catch (error) {
       // The unique index on lower(email) is what enforces that the address
@@ -77,6 +115,92 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
       throw error;
     }
+
+    await sendCode(userId, email);
+
+    return reply.code(202).send({
+      status: 'verification_sent',
+      email,
+      expiresInMinutes: CODE_TTL_MINUTES,
+    });
+  });
+
+  /**
+   * Finishes a registration, and is the only place tokens are first issued.
+   *
+   * Answers 201 with exactly what the registration used to answer, so a
+   * device that gets this far is in the state it was in before.
+   */
+  app.post('/api/auth/register/verify', async (request, reply) => {
+    const parsed = verifyCodeSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+    const { email, code } = parsed.data;
+
+    const { rows } = await pool.query<UserRow & { verified: boolean }>(
+      `SELECT id, name, email, level, email_verified_at IS NOT NULL AS verified
+         FROM users WHERE lower(email) = lower($1)`,
+      [email],
+    );
+    const user = rows[0];
+
+    // An unknown address is answered as a wrong code rather than as an
+    // unknown address, so this does not become a way to ask which addresses
+    // are registered. An address that is already verified is told so,
+    // because the registration endpoint reveals as much and the device
+    // needs to know to send the person to sign in instead.
+    if (!user) return reply.code(400).send({ error: 'invalid_code', attemptsLeft: 0 });
+    if (user.verified) return reply.code(409).send({ error: 'already_verified' });
+
+    const result = await checkCode(user.id, code, email);
+    if (!result.ok) {
+      if (result.reason === 'wrong') {
+        return reply.code(400).send({ error: 'invalid_code', attemptsLeft: result.attemptsLeft });
+      }
+      // Expired, spent, or guessed at five times. All three need a new code
+      // rather than another guess, which is a different thing to tell
+      // somebody than that the digits were wrong.
+      return reply.code(410).send({ error: result.reason });
+    }
+
+    await pool.query('UPDATE users SET email_verified_at = now() WHERE id = $1', [user.id]);
+
+    const refresh = await issueRefreshToken(user.id);
+    const accessToken = await signAccessToken({ userId: user.id });
+
+    return reply.code(201).send({
+      user: { id: user.id, name: user.name, email: user.email, level: user.level },
+      accessToken,
+      refreshToken: refresh.token,
+    });
+  });
+
+  /** Another code, at most one a minute. */
+  app.post('/api/auth/register/resend', async (request, reply) => {
+    const parsed = resendCodeSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+    const { email } = parsed.data;
+
+    const { rows } = await pool.query<{ id: string; verified: boolean }>(
+      'SELECT id, email_verified_at IS NOT NULL AS verified FROM users WHERE lower(email) = lower($1)',
+      [email],
+    );
+    const user = rows[0];
+
+    // Accepted whatever the state of the address, and nothing is sent when
+    // there is nothing to send. A different answer for an address that is
+    // not registered would turn this into a way to enumerate them.
+    const accepted = {
+      status: 'verification_sent',
+      email,
+      expiresInMinutes: CODE_TTL_MINUTES,
+    };
+    if (!user || user.verified) return reply.code(202).send(accepted);
+
+    const wait = await cooldownRemaining(user.id);
+    if (wait > 0) return reply.code(429).send({ error: 'too_soon', retryAfterSeconds: wait });
+
+    await sendCode(user.id, email);
+    return reply.code(202).send(accepted);
   });
 
   app.post('/api/auth/session', async (request, reply) => {
@@ -113,6 +237,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !matches) {
       if (user) await registerFailure(user);
       return reply.code(401).send({ error: 'invalid_credentials' });
+    }
+
+    // The password is right but the address was never proved, which is
+    // where somebody who closed the application before entering their code
+    // ends up. A fresh code goes out, subject to the same cooldown, and the
+    // device is sent to the screen that asks for it.
+    if (user.email_verified_at === null) {
+      const wait = await cooldownRemaining(user.id);
+      if (wait === 0) await sendCode(user.id, user.email);
+      return reply
+        .code(403)
+        .send({ error: 'email_not_verified', email: user.email, retryAfterSeconds: wait });
     }
 
     await pool.query(
@@ -201,6 +337,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /** Counts a failed attempt and locks the account once the threshold is met. */
+/**
+ * Issues a code and sends it.
+ *
+ * Failure to deliver is not failure to register. The account row stays and
+ * the person asks for another code, which is better than rolling back an
+ * account they may already have been told was created.
+ */
+async function sendCode(userId: string, email: string): Promise<void> {
+  const code = await issueCode(userId, email);
+  await sendMail({ to: email, ...verificationMessage(code, CODE_TTL_MINUTES) });
+}
+
 async function registerFailure(user: UserRow): Promise<void> {
   const attempts = user.failed_attempts + 1;
   const locked = attempts >= LOCK_AFTER_FAILURES;
