@@ -14,7 +14,7 @@
  *  holds a ford that is lethal in flood or a passage that needs hands. A
  *  trail that passes here is marked as automatically validated and not
  *  verified on the ground, and that wording is the protection. See
- *  docs/adr/0007.
+ *  docs/adr/0011.
  *
  *  Every rejection names a reason the contributor can act on, because a
  *  contribution refused without one is a contribution lost.

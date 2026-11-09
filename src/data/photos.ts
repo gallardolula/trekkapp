@@ -11,7 +11,7 @@
  *  path, somebody who did not agree to be in it, or something nobody
  *  should see. Shared photographs would need a moderator this system does
  *  not have. Private ones need none, because there is no audience to
- *  protect. See docs/adr/0008.
+ *  protect. See docs/adr/0014.
  *
  *  The file is copied out of the camera's temporary directory into the
  *  application's own, because what the picker hands over is cleaned up by

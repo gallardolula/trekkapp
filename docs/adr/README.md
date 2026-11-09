@@ -7,6 +7,10 @@ edited, it is superseded by a new record and marked here.
 Format: [Michael Nygard's](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
 template, with an explicit *Alternatives considered* section.
 
+A record whose decision still holds but whose details were overtaken by what
+was built carries an *Outcome* section at the end, dated. The decision itself
+is never rewritten: a decision that changes is superseded by a new record.
+
 | # | Decision | Status | Affects |
 | --- | --- | --- | --- |
 | [0001](./0001-offline-first-local-store.md) | Offline-first with SQLite as the primary store | Accepted | Whole system |
@@ -19,6 +23,11 @@ template, with an explicit *Alternatives considered* section.
 | [0008](./0008-maplibre-for-map-rendering.md) | MapLibre Native for map rendering | Accepted | Mobile app |
 | [0009](./0009-deviation-alert-hysteresis.md) | Hysteresis in the deviation alert | Accepted | Rules engine |
 | [0010](./0010-defer-postgis.md) | Defer PostGIS until a proximity query exists | Accepted | Server data model |
+| [0011](./0011-system-validated-contributions.md) | Contributed trails validated by the system, not reviewed | Accepted | Server, roles |
+| [0012](./0012-contours-from-a-separate-elevation-source.md) | Contour lines from a separate elevation source | Accepted | Cartography |
+| [0013](./0013-catalogue-generated-from-openstreetmap.md) | The installed catalogue is generated from OpenStreetMap | Accepted | Catalogue |
+| [0014](./0014-photographs-stay-on-the-device.md) | Photographs stay on the device that took them | Accepted | Mobile app, privacy |
+| [0015](./0015-offline-identity-is-a-claim.md) | Offline, identity is a claim and not a proof | Accepted | Security, sync |
 
 ## Writing a new record
 

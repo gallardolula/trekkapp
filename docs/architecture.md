@@ -116,16 +116,25 @@ on Node in the test suite and behave identically on the trail.
 
 | Module | Responsibility | State |
 | --- | --- | --- |
-| `dominio/geo` | Haversine distance, point-to-segment distance, distance to track | Built |
-| `dominio/sendero` | Total distance, cumulative ascent, effort index, difficulty class | Built |
-| `dominio/reglas` | Download gating, deviation hysteresis, weather thresholds | Built |
-| `dominio/tipos` | Domain types and shared enumerations | Built |
-| `datos/gpx` | GPX parsing, tolerant to malformed points | Built |
-| `datos/esquema` | DDL and versioned migrations | Built |
-| `datos/db` | Repositories over the local database | Built |
-| `datos/api` | Typed REST client, sync protocol | Planned |
-| `app/hike` | Active-hike session: sampling, evaluation loop, alert dispatch | Planned |
-| `app/mapa` | Map view, offline region management | Planned |
+| `domain/geo` | Haversine distance, point-to-segment distance, distance to track, anchoring a point onto a track | Built |
+| `domain/trail` | Total distance, cumulative ascent, effort index, difficulty class | Built |
+| `domain/profile` | Height against distance walked, and the hardest sustained stretch | Built |
+| `domain/rules` | Level gate, proximity gate, deviation hysteresis, weather thresholds | Built |
+| `domain/reports` | The catalogue of what can be reported, and its severities | Built |
+| `domain/identity` | Version 4 identifiers for anything created on the device | Built |
+| `domain/types` | Domain types and shared enumerations | Built |
+| `data/gpx` | GPX parsing, tolerant to malformed points | Built |
+| `data/schema` | DDL and versioned migrations | Built |
+| `data/db` | Repositories over the local database | Built |
+| `data/api` | Typed REST client, token renewal, reachability | Built |
+| `data/session` | Tokens in the Keychain or Keystore | Built |
+| `data/connectivity` | One answer for the whole application about whether the server responds | Built |
+| `data/regions` | Offline packs, per trail and per region, and which map a screen can draw | Built |
+| `data/photos` | Photographs of a walk, kept on the device | Built |
+| `sync/engine` | The synchronisation itself, push then pull, resumable | Built |
+| `sync/auto` | When it runs on its own, and when it refuses | Built |
+| `startup/seed` | The catalogue the application is installed with | Built |
+| `ui/*` | Screens, map, forms, states | Built |
 
 ### 4.3 Active-hike loop
 
@@ -216,9 +225,9 @@ sequenceDiagram
 | --- | --- | --- |
 | Trails (catalogue) | Server → device | Server authoritative. The device never edits published trails. |
 | Reports | Device → server | Append-only. Client UUID makes the write idempotent; conflicts cannot arise. |
-| Contributed trails | Device → server | Uploaded as `pendiente_revision`; the server decides publication. |
+| Contributed trails | Device → server | Validated on arrival and published or refused, with a reason ([ADR-0011](./adr/0011-system-validated-contributions.md)). |
 | Profile (level) | Bidirectional | Last write wins by `actualizado_en`. |
-| Forecast | Server → device | Overwrite; freshness carried by `obtenido_en`. |
+| Forecast | Server → device | Overwrite; freshness carried by `obtained_at`. |
 
 Append-only user content ([ADR-0005](./adr/0005-append-only-user-content.md)) is
 what removes the hard merge cases from the design.
@@ -328,17 +337,27 @@ trekkapp/
 │   ├── data-model.md        schema and invariants
 │   ├── integrations.md      libraries, APIs, providers
 │   └── adr/                 architecture decision records
+├── app/                     screens, routed by file (Expo Router)
+│   ├── (tabs)/              the four sections: home, trails, hikes, profile
+│   ├── trail/[id].tsx       a trail, its profile and its reports
+│   └── hike/[id].tsx        the walk, full screen map
 ├── src/
-│   ├── dominio/             pure business logic, no I/O
-│   ├── datos/               persistence, parsing, API client
-│   ├── app/                 use cases and session stores
-│   └── ui/                  screens and components (Expo Router)
+│   ├── domain/              pure business logic, no I/O
+│   ├── data/                persistence, parsing, API client, photographs
+│   ├── sync/                synchronisation and when it runs
+│   ├── startup/             the catalogue shipped with the application
+│   └── ui/                  components, map, forms, states
+├── tiles/                   tile generation: Planetiler, contours, cache
 ├── assets/
-└── server/                  Node.js API (planned, same repository)
+└── server/                  Node.js API, same repository
+    ├── src/routes/          endpoints
+    ├── src/tiles/           archives, style, glyphs, contours, terrain
+    ├── src/trails/          validation of contributions, catalogue generation
+    └── fonts/               glyph ranges the map labels are drawn with
 ```
 
-Code and comments are written in Spanish, matching the dissertation.
-Documentation aimed at tooling — these files included — is in English.
+Code, comments, schema and branch names are written in English. What the hiker
+reads on screen is Spanish. Documentation — these files included — is English.
 
 ---
 
@@ -357,9 +376,16 @@ Resolved items become records in [adr/](./adr/README.md).
 
 | Question | Blocking | Resolve by |
 | --- | --- | --- |
-| Region granularity and tile archive size for the Sierras extract | Yes, map sprint | Spike: generate one region, measure |
-| Background location behaviour under iOS suspension | Yes, hike sprint | Spike on a physical device |
+| When enough condition reports withdraw a trail from the catalogue | Yes, the control that replaced moderation | How many, from how many people, of which kinds, and how a trail comes back |
+| Contributing an imported trail to the server | No | The endpoint exists and nothing calls it; the device must adopt the identifier the server assigns |
+| A report the server refuses for good stays in the queue retrying | No | `attempts` is recorded and nothing reads it |
+| Background location behaviour under iOS suspension | No | Spike on a physical device |
 | Certificate pinning on the API client | No | Before store release |
-| SQLCipher for local data at rest | No | Only if profile data broadens |
-| Moderation workflow: who reviews contributed trails in the prototype | No | Before the contribution flow ships |
-| Object storage provider for tile archives | No | Before the map sprint ends |
+| Deployment: Supabase for the database, Render for the API | No | Everything currently runs on one laptop |
+
+Resolved since the last revision: region granularity and archive size
+([ADR-0006](./adr/0006-self-generated-map-tiles.md) outcome), who reviews
+contributed trails ([ADR-0011](./adr/0011-system-validated-contributions.md)),
+local data at rest ([ADR-0015](./adr/0015-offline-identity-is-a-claim.md)),
+and object storage, which is not needed while the archives sit on the server's
+own disk.

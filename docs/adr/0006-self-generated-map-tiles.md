@@ -53,3 +53,32 @@ inside the app bundle.
 
 Region granularity and archive size are unresolved. A spike generates one
 region and measures before the map sprint.
+
+---
+
+## Outcome, 2026-11-09
+
+Built, with three differences from what this record anticipated.
+
+The archive is served from the server's own disk rather than object storage,
+which remains the right choice for a deployment and is not yet needed for a
+prototype running on one machine.
+
+The style is served by the server rather than shipped in the application
+bundle, so that the tile and glyph addresses match the server actually
+answering, which differs between a phone on the local network and a
+deployment. It is built in `server/src/tiles/style.ts`.
+
+The glyphs are served too. A vector map carries no letters, and MapLibre draws
+no text at all when the style does not say where to fetch them, without
+reporting anything. The offline downloader requests every one of the two
+hundred and fifty six ranges of each font stack, so ranges the server does not
+hold answer with an empty glyph stack rather than a refusal; a single failed
+resource fails an entire region download.
+
+The region version folds in a style revision, because a downloaded pack holds
+whatever the style asked for. A style that starts drawing labels leaves every
+pack already on a phone incomplete without one tile having changed.
+
+Contour lines are served as a second source from a separate archive. See
+[0012](./0012-contours-from-a-separate-elevation-source.md).
