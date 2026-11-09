@@ -45,3 +45,12 @@ it with its age.
 | --- | --- |
 | Direct calls from the device | Duplicated load, per-device caches, provider coupling shipped in the app. |
 | Precompute warnings server-side | Moves a safety rule off the device, where it must remain evaluable offline. |
+
+---
+
+## Outcome, 2026-11-09
+
+Built. The device table is `forecasts` and the freshness column is
+`obtained_at`; both were renamed when the schema moved to English. The cache
+lives in PostgreSQL on the server, and a stale forecast is served with its age
+rather than withheld.

@@ -15,24 +15,27 @@ Related: [architecture.md](./architecture.md) · [data-model.md](./data-model.md
 | `react-native` | UI runtime | Single codebase for Android and iOS | — |
 | `typescript` (`strict`) | Language | Domain invariants expressed in types | — |
 | `expo-router` | Navigation | File-based routing, deep links without manual wiring | — |
-| `zustand` | Active-hike session state | The only cross-screen mutable state; Redux is disproportionate | — |
-| `@tanstack/react-query` | Server state: catalogue, forecast | Caching, retry and staleness semantics that would otherwise be hand-rolled | — |
 | `expo-sqlite` | Local database | Embedded, transactional, no server | [0001](./adr/0001-offline-first-local-store.md) |
 | `@maplibre/maplibre-react-native` | Map rendering, offline regions | Open source, vector tiles, first-class offline pack API | [0008](./adr/0008-maplibre-for-map-rendering.md) |
-| `expo-location` | Position fixes, foreground and background | Standard Expo surface over both platform location stacks | — |
-| `expo-task-manager` | Background task registration | Required for location updates with the screen off | — |
-| `expo-notifications` | Local alert delivery | Deviation alerts must reach the hiker without network | — |
-| `expo-document-picker`, `expo-file-system` | GPX import | Platform file access | — |
-| `expo-secure-store` | Token storage | Keychain / Keystore backed | — |
+| `expo-location` | Position fixes while a walk is under way, and one coarse fix to decide whether the hiker is at the trail | Standard Expo surface over both platform location stacks | — |
+| `expo-document-picker`, `expo-file-system` | GPX import, and the directory photographs are kept in | Platform file access | — |
+| `expo-image-picker` | Photographs of a walk | The camera. Required at runtime inside a try, so a build without it loses the button and nothing else | [0014](./adr/0014-photographs-stay-on-the-device.md) |
+| `expo-secure-store` | Token storage | Keychain / Keystore backed | [0015](./adr/0015-offline-identity-is-a-claim.md) |
+| `react-native-svg` | Track drawings, elevation profiles, icons, illustrated states | Already present for the schematic track; it removed the need for an icon font, which would have been another native module | — |
 
-**Installed today**: `expo`, `react-native`, `expo-sqlite`, `expo-document-picker`,
-`expo-file-system`, `expo-status-bar`. The rest arrive with their sprint.
+All of the above are installed. Two libraries anticipated in earlier revisions
+were never needed: `zustand`, because the only cross-screen mutable state
+turned out to live in the database, and `@tanstack/react-query`, because
+synchronisation is explicit and its state is a queue rather than a cache.
+`expo-task-manager` and `expo-notifications` went with background
+synchronisation, which is out of scope.
 
 ### Development dependencies
 
 | Library | Role |
 | --- | --- |
-| `jest`, `ts-jest`, `@types/jest` | Domain and parser tests, executed on Node without a native preset |
+| `jest`, `ts-jest`, `@types/jest` | Domain, parser, migration and synchronisation tests, executed on Node without a native preset |
+| `pngjs`, `geojson-vt`, `vt-pbf` | Generating contour tiles and reading terrain heights, server side only. Pure JavaScript, so no toolchain beyond Node, and omitted from a production install |
 
 ### Deliberately absent
 
@@ -119,13 +122,38 @@ deviation alert has to work with the phone in a pocket.
 | Called from | Backend only, never the device ([ADR-0007](./adr/0007-forecast-through-backend.md)) |
 | Variables consumed | Precipitation sum, maximum wind speed, minimum and maximum temperature |
 | Cache | Per trail and date, TTL 3 h, persisted server-side |
-| Device copy | Stored in `pronosticos` with `obtenido_en`, always rendered with its age |
+| Device copy | Stored in `forecasts` with `obtained_at`, always rendered with its age |
 | Failure mode | Unavailable or rate-limited |
 | Degradation | Serve the last cached forecast, labelled stale. Download is never blocked for lack of a forecast; the absence is stated explicitly |
 | Attribution | Required by their terms; rendered in the about screen |
 
 Thresholds that turn a forecast into a warning live in the domain layer, not in
 the integration. Changing the provider does not change the rules.
+
+---
+
+### Overpass — the catalogue
+
+| Aspect | Value |
+| --- | --- |
+| Purpose | The named paths and hiking routes of a region, with their geometry |
+| Authentication | None |
+| Called from | A build-time script, never the application or the running server |
+| Timing | Once per catalogue generation, into `src/startup/catalogue.json` |
+| Failure mode | Gateway timeouts whenever a server is busy, which is often |
+| Degradation | Several servers are tried in turn and then again after a wait. A mirror holding only one country answers happily with nothing, so an empty answer moves to the next server rather than being believed |
+| Attribution | ODbL, required, shown on the catalogue screen ([ADR-0013](./adr/0013-catalogue-generated-from-openstreetmap.md)) |
+
+### AWS Terrain Tiles — elevation
+
+| Aspect | Value |
+| --- | --- |
+| Purpose | Heights for the contour lines and for the generated catalogue |
+| Authentication | None; public bucket of the AWS Open Data registry |
+| Called from | Build-time scripts only |
+| Encoding | Height in metres spread across the colour channels of a PNG |
+| Cache | Kept on disk between runs under `tiles/cache`, so regenerating does not re-download ground that has not moved |
+| Attribution | Derived from SRTM and NASADEM ([ADR-0012](./adr/0012-contours-from-a-separate-elevation-source.md)) |
 
 ---
 

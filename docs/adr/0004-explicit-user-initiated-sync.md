@@ -47,3 +47,22 @@ queue is visible, and the result of a sync is reported explicitly.
 | Background sync on connectivity change | Unpredictable battery cost; repeated retries under marginal coverage. |
 | Periodic background task | Same cost, plus platform scheduling that cannot be relied on when the app is suspended. |
 | Sync on app foreground only | Closer, but still implicit; the hiker cannot decline it. |
+
+---
+
+## Outcome, 2026-11-09
+
+Refined rather than reversed. Synchronisation now also runs on its own when
+the application comes to the front, which is an event the platform gives for
+free, happens only while somebody is holding the phone, and is exactly when a
+report that has been waiting in the queue should leave.
+
+What this record protects against is a phone hunting for signal on a mountain,
+so the automatic run refuses outright while a walk is being recorded, refuses
+a second run while one is under way, refuses more than one every five minutes,
+and never touches the network without a session. Nothing polls: asking the
+network periodically whether it is back is the behaviour this record rules
+out, and it is also the wrong question, since what matters is whether this
+server answers rather than whether the radio is on.
+
+See `src/sync/auto.ts`.

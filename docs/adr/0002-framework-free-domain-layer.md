@@ -51,3 +51,12 @@ domain depends on nothing.
 ## Follow-up
 
 An import-boundary lint rule is a candidate hardening step.
+
+---
+
+## Outcome, 2026-11-09
+
+The folder is `src/domain/`. It was renamed when the code moved to English,
+and the rule it carries is unchanged: plain TypeScript, no imports outside
+itself, and the very same modules are imported by the server so that a client
+and a server can never disagree about how demanding a trail is.
