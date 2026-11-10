@@ -14,11 +14,11 @@
  *  on anyone who only wants to look at the catalogue.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Rect } from 'react-native-svg';
 
 import { Point } from '../domain/types';
-import { Palette, sp } from './theme';
+import { Palette } from './theme';
 
 /** The camera handle, narrowed to the movements this screen makes. */
 interface CameraRef {
@@ -441,8 +441,6 @@ export function SchematicTrack({
     };
   }, [track, position, width, height, reports]);
 
-  const s = styles(colours);
-
   return (
     <View style={{ width, height }}>
       <Svg width={width} height={height}>
@@ -498,23 +496,6 @@ export function SchematicTrack({
           </>
         )}
       </Svg>
-      <Text style={s.note}>
-        Esquema de la traza sin cartografía. Descargá la región del mapa para ver el terreno.
-      </Text>
     </View>
   );
 }
-
-const styles = (c: Palette) =>
-  StyleSheet.create({
-    note: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: sp.sm,
-      color: c.mutedText,
-      fontSize: 11,
-      textAlign: 'center',
-      paddingHorizontal: sp.md,
-    },
-  });

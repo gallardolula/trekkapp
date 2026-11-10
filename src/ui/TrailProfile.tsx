@@ -11,11 +11,11 @@
  *  connection at all.
  */
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import Svg, { Defs, LinearGradient, Line, Path, Polyline, Stop, Text as SvgText } from 'react-native-svg';
 
-import { describeGrade, type TrailProfile as Profile } from '../domain/profile';
-import { Palette, sp } from './theme';
+import { type TrailProfile as Profile } from '../domain/profile';
+import { Palette } from './theme';
 
 export interface TrailProfileProps {
   profile: Profile;
@@ -25,8 +25,6 @@ export interface TrailProfileProps {
 }
 
 export function TrailProfile({ profile, colours, width, height = 150 }: TrailProfileProps) {
-  const s = styles(colours);
-
   const view = useMemo(() => {
     const padLeft = 38;
     const padRight = 10;
@@ -61,6 +59,11 @@ export function TrailProfile({ profile, colours, width, height = 150 }: TrailPro
         profile.steepest.grade > 0.12 && {
           from: x(profile.steepest.fromM),
           to: x(profile.steepest.toM),
+          // The band is marked with its own gradient rather than with a
+          // sentence underneath. A figure on the stretch it describes is
+          // read where it applies; a line of prose under the drawing is
+          // read after the drawing, or not at all.
+          grade: `${Math.round(profile.steepest.grade * 100)} %`,
         },
     };
   }, [profile, width, height]);
@@ -78,11 +81,23 @@ export function TrailProfile({ profile, colours, width, height = 150 }: TrailPro
         {/* The hardest stretch, marked under the line rather than on it, so
             it reads as ground covered and not as a different trail. */}
         {view.hard && (
-          <Path
-            d={`M${view.hard.from},0 L${view.hard.to},0 L${view.hard.to},${view.baseline} L${view.hard.from},${view.baseline} Z`}
-            fill={colours.warning}
-            fillOpacity={0.12}
-          />
+          <>
+            <Path
+              d={`M${view.hard.from},0 L${view.hard.to},0 L${view.hard.to},${view.baseline} L${view.hard.from},${view.baseline} Z`}
+              fill={colours.warning}
+              fillOpacity={0.12}
+            />
+            <SvgText
+              x={(view.hard.from + view.hard.to) / 2}
+              y={11}
+              fontSize={10}
+              fontWeight="700"
+              fill={colours.warning}
+              textAnchor="middle"
+            >
+              {view.hard.grade}
+            </SvgText>
+          </>
         )}
 
         <Line
@@ -123,18 +138,6 @@ export function TrailProfile({ profile, colours, width, height = 150 }: TrailPro
           {`${(profile.lengthM / 1000).toFixed(1)} km`}
         </SvgText>
       </Svg>
-
-      {profile.steepest && profile.steepest.grade > 0.12 && (
-        <Text style={s.note}>
-          Tramo más exigente entre el km {(profile.steepest.fromM / 1000).toFixed(1)} y el km{' '}
-          {(profile.steepest.toM / 1000).toFixed(1)}, {describeGrade(profile.steepest.grade)}.
-        </Text>
-      )}
     </View>
   );
 }
-
-const styles = (c: Palette) =>
-  StyleSheet.create({
-    note: { color: c.mutedText, fontSize: 12, lineHeight: 17, marginTop: sp.xs },
-  });
