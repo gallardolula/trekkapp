@@ -83,6 +83,45 @@ export function classifyDifficulty(index: number): Level {
   return 'advanced';
 }
 
+/**
+ * Naismith's rule, the walking pace over flat ground, in km an hour.
+ *
+ * The rule was stated by William W. Naismith in 1892 as three miles an
+ * hour, which is where the five comes from.
+ */
+export const NAISMITH_FLAT_KMH = 5;
+
+/**
+ * Naismith's rule, the ascent added as an hour, in metres.
+ *
+ * Two thousand feet in the original, taken here as the six hundred metres
+ * the rule is quoted as ever since.
+ */
+export const NAISMITH_ASCENT_M_PER_HOUR = 600;
+
+/**
+ * Roughly how long a trail takes to walk, in minutes.
+ *
+ * Naismith's rule and nothing added to it: an hour for every five
+ * kilometres of ground and an hour more for every six hundred metres of
+ * ascent. It is quoted that way in every mountaineering manual, which is
+ * the reason to use it rather than a figure of our own. It counts walking
+ * and not stops, and descent costs nothing.
+ *
+ * Deliberately separate from the effort index. The index exists to
+ * classify difficulty and answers a different question with a different
+ * constant; folding the two together would mean that a change to the
+ * difficulty bands silently moved every time shown on screen.
+ *
+ * An estimate, and nothing in the application depends on it, which is why
+ * it is not one of the stored attributes.
+ */
+export function estimatedMinutes(distanceM: number, elevationGainM: number): number {
+  const hours =
+    distanceM / 1000 / NAISMITH_FLAT_KMH + elevationGainM / NAISMITH_ASCENT_M_PER_HOUR;
+  return Math.round(hours * 60);
+}
+
 /** Computes every derived attribute of a track in one pass. */
 export function computeAttributes(points: Point[]): TrailAttributes {
   const distanceM = totalDistance(points);

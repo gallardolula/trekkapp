@@ -3,6 +3,7 @@ import {
   computeAttributes,
   effortIndex,
   elevationGain,
+  estimatedMinutes,
   ELEVATION_NOISE_THRESHOLD_M,
   totalDistance,
 } from '../trail';
@@ -118,5 +119,25 @@ describe('computeAttributes', () => {
     expect(a.distanceM).toBe(0);
     expect(a.elevationGainM).toBe(0);
     expect(a.difficulty).toBe('beginner');
+  });
+});
+
+describe('estimatedMinutes', () => {
+  it('walks flat ground at five kilometres an hour', () => {
+    expect(estimatedMinutes(5000, 0)).toBe(60);
+    expect(estimatedMinutes(20_000, 0)).toBe(240);
+  });
+
+  it('adds an hour for every six hundred metres of ascent', () => {
+    expect(estimatedMinutes(0, 600)).toBe(60);
+    expect(estimatedMinutes(0, 300)).toBe(30);
+  });
+
+  it('adds the two terms of the rule', () => {
+    expect(estimatedMinutes(10_000, 1200)).toBe(240);
+  });
+
+  it('is nought for a trail with no length and no ascent', () => {
+    expect(estimatedMinutes(0, 0)).toBe(0);
   });
 });

@@ -16,7 +16,7 @@
  */
 import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { CloudRain, Droplets, Thermometer, Wind } from 'lucide-react-native';
+import { CloudRain, Droplets, Wind } from 'lucide-react-native';
 
 import { HourlyForecast } from '../domain/types';
 import { Palette, sp, useTheme } from './theme';
@@ -41,11 +41,6 @@ export function WeatherStrip({ hours, obtainedAt }: WeatherStripProps) {
 
   return (
     <View>
-      <View style={s.head}>
-        <Thermometer size={15} color={c.mutedText} strokeWidth={2} />
-        <Text style={s.title}>Las próximas horas en el sendero</Text>
-      </View>
-
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -75,7 +70,7 @@ export function WeatherStrip({ hours, obtainedAt }: WeatherStripProps) {
               <View style={s.row}>
                 <Wind size={13} color={windy ? c.warning : c.mutedText} strokeWidth={2.2} />
                 <Text style={[s.figure, windy && { color: c.warning, fontWeight: '700' }]}>
-                  {Math.round(h.windKmh)}
+                  {Math.round(h.windKmh)} km/h
                 </Text>
               </View>
             </View>
@@ -83,11 +78,10 @@ export function WeatherStrip({ hours, obtainedAt }: WeatherStripProps) {
         })}
       </ScrollView>
 
-      <Text style={s.foot}>
-        Viento en km/h y probabilidad de lluvia. Se marcan las horas con más de{' '}
-        {STRONG_WIND_KMH} km/h o más de {LIKELY_RAIN}% de lluvia.
-        {obtainedAt ? ` Pronóstico de ${age(obtainedAt)}.` : ''}
-      </Text>
+      {/* The age and nothing else. Every figure above carries its own unit
+          and the marked hours are marked, so the only thing the strip
+          cannot draw is when it was obtained. */}
+      {!!obtainedAt && <Text style={s.foot}>{age(obtainedAt)}</Text>}
     </View>
   );
 }
@@ -107,14 +101,12 @@ function age(iso: string): string {
 
 const styles = (c: Palette) =>
   StyleSheet.create({
-    head: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: sp.sm },
-    title: { color: c.text, fontWeight: '700', fontSize: 13 },
     stripOuter: { marginHorizontal: -sp.lg },
     strip: { gap: sp.sm, paddingHorizontal: sp.lg, paddingVertical: 2 },
     hour: {
       alignItems: 'center',
       gap: 4,
-      minWidth: 62,
+      minWidth: 74,
       backgroundColor: c.surface,
       borderColor: c.border,
       borderWidth: 1.5,
