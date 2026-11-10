@@ -204,11 +204,6 @@ export default function Verify() {
             {wait > 0 ? `Pedir otro código en ${wait} s` : 'Pedir otro código'}
           </Text>
         </Pressable>
-
-        <Text style={s.footer}>
-          Si cerrás la aplicación ahora, podés volver a iniciar sesión con ese correo y tu
-          contraseña, y te pedimos el código de nuevo.
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
