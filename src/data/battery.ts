@@ -21,18 +21,31 @@ import { openDatabase } from './db';
 export { rateOf, RNF04_BUDGET_PER_HOUR } from '../domain/battery';
 export type { Sample } from '../domain/battery';
 
-/** The module is absent from a build without it, as the camera is. */
-const battery: typeof import('expo-battery') | null = (() => {
+/**
+ * The module, or the reason it could not be loaded.
+ *
+ * It asks for its native counterpart the moment it is imported, so a host
+ * application that does not carry that counterpart fails here rather than
+ * on the first call. The reason is kept: 'absent' and 'present but broken'
+ * look identical from the outside, and a screen that reports only the first
+ * sends somebody looking in the wrong place.
+ */
+const loaded: { module: typeof import('expo-battery') | null; reason: string | null } = (() => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('expo-battery') as typeof import('expo-battery');
-  } catch {
-    return null;
+    return { module: require('expo-battery') as typeof import('expo-battery'), reason: null };
+  } catch (error) {
+    return { module: null, reason: (error as Error).message };
   }
 })();
 
+const battery = loaded.module;
+
 /** Whether this build can read the battery at all. */
 export const batteryAvailable = () => battery !== null;
+
+/** Why it cannot, when it cannot. */
+export const batteryUnavailableReason = () => loaded.reason;
 
 export interface SessionResult extends Rate {
   session: string;
@@ -53,9 +66,21 @@ export async function read(): Promise<Sample | null> {
   };
 }
 
-/** Takes a reading and records it against a session. */
-export async function sample(session: string): Promise<Sample | null> {
-  const s = await read();
+/**
+ * Takes a reading and records it against a session.
+ *
+ * A level given by hand is used when there is one, and the module is asked
+ * otherwise. Expo Go does not carry the native counterpart, so on the
+ * client this prototype is tested with there is nothing to ask; the figure
+ * the requirement needs is two percentages and the time between them, and
+ * the indicator the phone already shows is a perfectly good instrument for
+ * that. The arithmetic does not care where the number came from.
+ */
+export async function sample(session: string, level?: number): Promise<Sample | null> {
+  const s =
+    level === undefined
+      ? await read()
+      : { level: Math.max(0, Math.min(100, level)), charging: false, at: new Date().toISOString() };
   if (!s) return null;
   const db = await openDatabase();
   await db.runAsync(
@@ -69,10 +94,10 @@ export async function sample(session: string): Promise<Sample | null> {
 }
 
 /** Starts a session and takes its first reading. */
-export async function startSession(): Promise<string | null> {
-  if (!battery) return null;
+export async function startSession(level?: number): Promise<string | null> {
+  if (!battery && level === undefined) return null;
   const session = `m-${Date.now()}`;
-  const first = await sample(session);
+  const first = await sample(session, level);
   return first ? session : null;
 }
 

@@ -6,12 +6,17 @@
  *  hardest to defend.
  *
  *  The first runs here and finishes in seconds. The second cannot: it needs
- *  the phone to be carried with the screen off for long enough that the
- *  reading means something, so this screen starts a session, survives the
- *  screen being locked, and gives the rate when it is stopped.
+ *  the phone carried with the screen off for long enough that the reading
+ *  means something, so a session survives the screen being locked and gives
+ *  the rate when it is stopped.
  *
- *  Deliberately plain. It is an instrument and not a feature, and the
- *  numbers it reports go into the document rather than in front of a hiker.
+ *  Expo Go carries no battery module, so where there is nothing to ask the
+ *  level is typed from the indicator the phone already shows. Two
+ *  percentages and the time between them is the whole measurement, and the
+ *  arithmetic does not care where the numbers came from.
+ *
+ *  Figures and nothing else. This is an instrument, and an instrument that
+ *  explains itself on screen is a manual rather than a dial.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -26,13 +31,8 @@ import {
   type Sample,
   type SessionResult,
 } from '../src/data/battery';
-import {
-  report,
-  RNF02_BUDGET_MS,
-  RNF02_POINTS,
-  type Timing,
-} from '../src/domain/benchmark';
-import { Button } from '../src/ui/forms';
+import { report, RNF02_BUDGET_MS, type Timing } from '../src/domain/benchmark';
+import { Button, Field } from '../src/ui/forms';
 import { Palette, sp, useTheme } from '../src/ui/theme';
 
 /** How often a reading is taken while this screen is awake. */
@@ -45,25 +45,27 @@ export default function Measurements() {
   const [timings, setTimings] = useState<Timing[] | null>(null);
   const [running, setRunning] = useState(false);
 
+  const automatic = batteryAvailable();
   const [session, setSession] = useState<string | null>(null);
   const [latest, setLatest] = useState<Sample | null>(null);
   const [result, setResult] = useState<SessionResult | null>(null);
+  const [typed, setTyped] = useState('');
 
   useEffect(() => {
-    void readBattery().then(setLatest);
-  }, []);
+    if (automatic) void readBattery().then(setLatest);
+  }, [automatic]);
 
-  // While this screen is awake it keeps sampling. A locked phone stops the
-  // timer and costs resolution, not the measurement: the rate is taken from
-  // the first and last readings, and one is written the moment the session
-  // is stopped.
+  // While this screen is awake it keeps sampling, where there is a module to
+  // ask. A locked phone stops the timer and costs resolution, not the
+  // measurement: the rate comes from the first and last readings, and one is
+  // written when the session stops.
   useEffect(() => {
-    if (!session) return;
+    if (!session || !automatic) return;
     const timer = setInterval(() => {
-      void sample(session).then((s) => s && setLatest(s));
+      void sample(session).then((r) => r && setLatest(r));
     }, SAMPLE_EVERY_MS);
     return () => clearInterval(timer);
-  }, [session]);
+  }, [session, automatic]);
 
   const measureSpeed = useCallback(() => {
     setRunning(true);
@@ -75,27 +77,28 @@ export default function Measurements() {
     }, 50);
   }, []);
 
+  const level = () => (automatic ? undefined : Number(typed.replace(',', '.')));
+  const usable = automatic || (typed.length > 0 && Number.isFinite(Number(typed.replace(',', '.'))));
+
   async function begin() {
     setResult(null);
-    const started = await startSession();
+    const started = await startSession(level());
     setSession(started);
-    if (started) setLatest(await readBattery());
+    setTyped('');
+    if (started && automatic) setLatest(await readBattery());
   }
 
   async function finish() {
     if (!session) return;
-    await sample(session);
+    await sample(session, level());
     setResult(await resultOf(session));
     setSession(null);
+    setTyped('');
   }
 
   return (
-    <ScrollView contentContainerStyle={s.content}>
+    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       <Text style={s.title}>RNF02. Evaluación de la posición</Text>
-      <Text style={s.detail}>
-        Presupuesto de {RNF02_BUDGET_MS} ms contra una traza de {RNF02_POINTS} puntos. Esta medición
-        corre en este teléfono, que es donde el requerimiento aplica.
-      </Text>
 
       <Button
         label={running ? 'Midiendo…' : 'Medir'}
@@ -120,67 +123,55 @@ export default function Measurements() {
               </Text>
             </View>
           ))}
-          <Text style={s.verdict}>
-            {timings.every((t) => t.p95Ms < RNF02_BUDGET_MS)
-              ? `Dentro del presupuesto de ${RNF02_BUDGET_MS} ms en todos los tamaños.`
-              : `Supera el presupuesto de ${RNF02_BUDGET_MS} ms.`}
-          </Text>
         </View>
       )}
 
       <Text style={[s.title, { marginTop: sp.xl }]}>RNF04. Consumo de batería</Text>
-      <Text style={s.detail}>
-        Techo de {RNF04_BUDGET_PER_HOUR} % por hora con la pantalla apagada. Iniciá la medición,
-        bloqueá el teléfono y caminá. Al volver, detenela. Las lecturas hechas con el cargador
-        enchufado se descartan del cálculo.
-      </Text>
 
-      {!batteryAvailable() ? (
-        <Text style={s.detail}>Esta compilación no puede leer la batería.</Text>
+      {automatic ? (
+        <View style={s.card}>
+          <Text style={s.lectura}>
+            {latest ? `${latest.level.toFixed(1)} %` : '—'}
+            {latest?.charging ? '  ⚡' : ''}
+          </Text>
+        </View>
       ) : (
-        <>
-          <View style={s.card}>
-            <Text style={s.lectura}>
-              {latest ? `${latest.level.toFixed(1)} %` : 'sin lectura'}
-              {latest?.charging ? '  (cargando)' : ''}
-            </Text>
-            <Text style={s.detail}>
-              {session ? 'Midiendo. Podés apagar la pantalla.' : 'Sin medición en curso.'}
-            </Text>
-          </View>
-
-          <Button
-            label={session ? 'Detener y calcular' : 'Iniciar medición'}
-            onPress={() => void (session ? finish() : begin())}
-            variant={session ? 'outline' : 'primary'}
-          />
-        </>
+        <Field
+          label="Batería"
+          value={typed}
+          onChangeText={(v) => setTyped(v.replace(/[^0-9.,]/g, '').slice(0, 5))}
+          keyboardType="decimal-pad"
+          placeholder="%"
+        />
       )}
+
+      <Button
+        label={session ? 'Detener' : 'Medir'}
+        onPress={() => void (session ? finish() : begin())}
+        variant={session ? 'outline' : 'primary'}
+        disabled={!usable}
+      />
 
       {result && (
         <View style={s.card}>
-          <Text style={s.verdict}>
-            {result.perHour === null
-              ? 'La medición fue demasiado corta para decir algo. Hacen falta al menos cinco minutos.'
-              : `${result.perHour.toFixed(2)} % por hora, sobre ${Math.round(result.minutes)} minutos y ${result.samples.length} lecturas.`}
+          <Text style={s.lectura}>
+            {result.perHour === null ? '—' : `${result.perHour.toFixed(2)} %/h`}
           </Text>
-          {result.withinBudget !== null && (
+          <View style={s.row}>
+            <Text style={[s.cell, s.head, s.wide]}>{Math.round(result.minutes)} min</Text>
+            <Text style={[s.cell, s.head]}>{result.samples.length} lecturas</Text>
             <Text
               style={[
-                s.verdict,
-                { color: result.withinBudget ? c.success : c.danger, fontWeight: '700' },
+                s.cell,
+                s.head,
+                result.withinBudget !== null && {
+                  color: result.withinBudget ? c.success : c.danger,
+                },
               ]}
             >
-              {result.withinBudget
-                ? `Dentro del techo de ${RNF04_BUDGET_PER_HOUR} % por hora.`
-                : `Supera el techo de ${RNF04_BUDGET_PER_HOUR} % por hora.`}
+              de {RNF04_BUDGET_PER_HOUR} %/h
             </Text>
-          )}
-          {result.droppedCharging > 0 && (
-            <Text style={s.detail}>
-              Se descartaron {result.droppedCharging} lecturas tomadas con el cargador.
-            </Text>
-          )}
+          </View>
         </View>
       )}
     </ScrollView>
@@ -191,7 +182,6 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     content: { padding: sp.lg, paddingBottom: sp.xl * 2, gap: sp.sm },
     title: { color: c.text, fontSize: 17, fontWeight: '800' },
-    detail: { color: c.mutedText, fontSize: 13, lineHeight: 19 },
     card: {
       backgroundColor: c.surface,
       borderColor: c.border,
@@ -206,5 +196,4 @@ const styles = (c: Palette) =>
     wide: { flex: 1.2, textAlign: 'left' },
     head: { color: c.mutedText, fontWeight: '700', fontSize: 12 },
     lectura: { color: c.text, fontSize: 28, fontWeight: '800' },
-    verdict: { color: c.text, fontSize: 13, lineHeight: 19 },
   });

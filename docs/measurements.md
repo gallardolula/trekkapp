@@ -51,8 +51,9 @@ At the size the requirement names the cost is **4.9 ms against a budget of
 3.94, so the cost is linear in the length of the track, as a single pass over
 the segments should be. The requirement holds at twice the size it names.
 
-Device figures: **not yet taken.** Run the Mediciones screen on the phone and
-record them here. They are the ones that answer the requirement, because the
+Device figures: **not yet taken.** The Mediciones screen produces them and
+they belong in the table above. They are the ones that answer the requirement,
+because the
 engine on a device is Hermes and is slower on this kind of numeric loop than
 the one a laptop runs. The margin above is wide enough that the result is not
 in doubt, but the number has to be taken rather than assumed.
@@ -66,6 +67,15 @@ in doubt, but the number has to be taken rather than assumed.
 
 Reading and storage in `src/data/battery.ts`, arithmetic in
 `src/domain/battery.ts`, operated from the **Mediciones** screen.
+
+The level is typed rather than read. `expo-battery` is installed and the
+screen will use it wherever it is present, but the development client this
+prototype is tested on carries no native counterpart for it and fails with
+`Cannot find native module 'ExpoBattery'`. That costs less than it sounds:
+the measurement is two percentages and the time between them, and the
+indicator the phone already shows is as good a source for those as an API
+would be. The timestamps are the device's either way, so what is typed is a
+level and never a time.
 
 A session is started, the phone is locked and carried, and the session is
 stopped on return. Readings are taken every minute while the application is
