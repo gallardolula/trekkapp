@@ -115,6 +115,36 @@ export async function capturePhoto(
   };
 }
 
+/**
+ * Adds photographs from the phone's gallery to a walk that already ended.
+ *
+ * Returns how many were kept, zero when the hiker backed out. No place is
+ * stored for them: the receiver was not asked when they were taken, and
+ * guessing one from the track would put a picture somewhere it may not
+ * belong.
+ */
+export async function pickPhotos(hikeId: string): Promise<number> {
+  if (!picker) throw new CameraMissing();
+
+  const chosen = await picker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsMultipleSelection: true,
+    selectionLimit: 10,
+    quality: 0.6,
+    exif: false,
+  });
+  if (chosen.canceled) return 0;
+
+  let kept = 0;
+  for (const [i, asset] of chosen.assets.entries()) {
+    const target = new File(folder(), `${Date.now()}-${i}.jpg`);
+    new File(asset.uri).copy(target);
+    await savePhoto({ hikeId, uri: target.uri });
+    kept += 1;
+  }
+  return kept;
+}
+
 /** Removes the file a forgotten photograph left behind. */
 export function deleteFile(uri: string): void {
   try {

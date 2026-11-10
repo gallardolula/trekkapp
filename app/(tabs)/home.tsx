@@ -6,13 +6,17 @@
  *  outings, because the application works without a connection and a feed
  *  that is empty or stale offline is worse than no feed.
  *
- *  The cards lead with the trail itself rather than a photograph. See
- *  `TrailArt` for why, and for what the drawing actually shows.
+ *  The cards lead with the trail itself, drawn by `TrailArt`, until the
+ *  hiker has walked it and added photographs from the history. From then
+ *  on the newest of their own pictures is the cover, because a place you
+ *  have been is recognised by what you saw there and not by its shape.
  */
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
+import { Images } from 'lucide-react-native';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +28,7 @@ import {
 import {
   countPendingSync,
   listTrails,
+  photosByTrail,
   Profile,
   readProfile,
   readTrackShape,
@@ -63,6 +68,7 @@ export default function Home() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trails, setTrails] = useState<TrailSummary[]>([]);
   const [shapes, setShapes] = useState<Record<string, Point[]>>({});
+  const [photos, setPhotos] = useState<Record<string, string[]>>({});
   const [pending, setPending] = useState(0);
   const [ready, setReady] = useState(false);
   const [filter, setFilter] = useState<Filter>('ready');
@@ -74,9 +80,15 @@ export default function Home() {
       let active = true;
       (async () => {
         await prepareStorage();
-        const [p, list, n] = await Promise.all([readProfile(), listTrails(), countPendingSync()]);
+        const [p, list, n, pictures] = await Promise.all([
+          readProfile(),
+          listTrails(),
+          countPendingSync(),
+          photosByTrail(),
+        ]);
         if (!active) return;
         setProfile(p);
+        setPhotos(pictures);
         setTrails(list);
         setPending(n);
         setReady(true);
@@ -233,6 +245,7 @@ export default function Home() {
       ) : (
         shown.map((t) => {
           const offline = t.downloadedAt !== null;
+          const pictures = photos[t.id] ?? [];
           return (
             <Pressable
               key={t.id}
@@ -248,6 +261,16 @@ export default function Home() {
                   height={200}
                   tint={colour[t.attributes.difficulty]}
                 />
+                {pictures.length > 0 && (
+                  <>
+                    <Image source={{ uri: pictures[0] }} style={s.cover} resizeMode="cover" />
+                    <View style={s.shade} />
+                    <View style={s.count}>
+                      <Images color={c.onPrimary} size={13} />
+                      <Text style={s.badgeText}>{pictures.length}</Text>
+                    </View>
+                  </>
+                )}
                 <View style={s.artOverlay}>
                   {offline && (
                     <View style={s.badge}>
@@ -321,6 +344,20 @@ const styles = (c: Palette) =>
     card: { marginTop: sp.lg, borderRadius: 18, overflow: 'hidden', backgroundColor: c.surface },
     art: { position: 'relative' },
     artOverlay: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: sp.lg },
+    cover: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' },
+    shade: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#00000059' },
+    count: {
+      position: 'absolute',
+      top: sp.md,
+      right: sp.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      backgroundColor: '#00000066',
+      borderRadius: 14,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+    },
     badge: {
       flexDirection: 'row',
       alignItems: 'center',

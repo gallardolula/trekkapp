@@ -1020,6 +1020,25 @@ export async function listPhotos(hikeId: string): Promise<HikePhoto[]> {
   }));
 }
 
+/**
+ * The photographs of every trail that has any, newest first.
+ *
+ * What the home screen shows on a trail's card. Keyed by trail and not by
+ * walk, because the card is the trail and somebody who walked it three
+ * times has three outings' worth of pictures of the same place.
+ */
+export async function photosByTrail(): Promise<Record<string, string[]>> {
+  const db = await openDatabase();
+  const rows = await db.getAllAsync<{ trail_id: string; uri: string }>(
+    `SELECT h.trail_id, p.uri FROM hike_photos p
+       JOIN hikes h ON h.id = p.hike_id
+      ORDER BY p.taken_at DESC`,
+  );
+  const byTrail: Record<string, string[]> = {};
+  for (const r of rows) (byTrail[r.trail_id] ??= []).push(r.uri);
+  return byTrail;
+}
+
 /** How many photographs each of these walks holds, for the history list. */
 export async function countPhotos(hikeIds: string[]): Promise<Record<string, number>> {
   if (hikeIds.length === 0) return {};

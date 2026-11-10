@@ -13,8 +13,10 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { countPhotos, deleteHike, listHikes, listPhotos, photoFilesOf, type HikePhoto, type HikeSummary } from '../../src/data/db';
-import { deleteFile } from '../../src/data/photos';
+import { deleteHike, listHikes, listPhotos, photoFilesOf, type HikePhoto, type HikeSummary } from '../../src/data/db';
+import { ImagePlus } from 'lucide-react-native';
+
+import { cameraAvailable, capturePhoto, CameraRefused, deleteFile, pickPhotos } from '../../src/data/photos';
 import { prepareStorage } from '../../src/startup/storage';
 import { StateView } from '../../src/ui/StateView';
 import { Palette, sp, useTheme } from '../../src/ui/theme';
@@ -35,13 +37,39 @@ export default function Hikes() {
   const { c } = useTheme();
   const s = useMemo(() => styles(c), [c]);
   const [hikes, setHikes] = useState<HikeSummary[] | null>(null);
-  // How many photographs each walk holds, and the ones of the walk being
-  // looked at. Counted for the list and loaded only when opened, because a
-  // gallery of every outing at once is a lot of files for a screen that
-  // mostly shows numbers.
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [open, setOpen] = useState<string | null>(null);
-  const [gallery, setGallery] = useState<HikePhoto[]>([]);
+  // The photographs of each walk. Added here, once the walk is over, and
+  // never on the walk screen, where the hands and the attention belong to
+  // the path.
+  const [galleries, setGalleries] = useState<Record<string, HikePhoto[]>>({});
+
+  const loadGalleries = useCallback(async (list: HikeSummary[]) => {
+    const entries = await Promise.all(list.map(async (h) => [h.id, await listPhotos(h.id)] as const));
+    setGalleries(Object.fromEntries(entries));
+  }, []);
+
+  async function addPhotos(h: HikeSummary, from: 'camera' | 'library') {
+    try {
+      if (from === 'camera') await capturePhoto(h.id, null);
+      else await pickPhotos(h.id);
+      const photos = await listPhotos(h.id);
+      setGalleries((prev) => ({ ...prev, [h.id]: photos }));
+    } catch (error) {
+      Alert.alert(
+        'No pudimos agregar las fotos',
+        error instanceof CameraRefused
+          ? 'Hace falta permiso de cámara. Podés activarlo desde los ajustes del teléfono.'
+          : 'Probá de nuevo en un momento.',
+      );
+    }
+  }
+
+  function chooseSource(h: HikeSummary) {
+    Alert.alert('Agregar fotos', h.trailName, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Cámara', onPress: () => void addPhotos(h, 'camera') },
+      { text: 'Galería', onPress: () => void addPhotos(h, 'library') },
+    ]);
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -51,19 +79,20 @@ export default function Hikes() {
         const list = await listHikes();
         if (!active) return;
         setHikes(list);
-        setCounts(await countPhotos(list.map((h) => h.id)));
+        await loadGalleries(list);
       })();
       return () => {
         active = false;
       };
-    }, []),
+    }, [loadGalleries]),
   );
 
   function askToRemove(h: HikeSummary) {
+    const n = galleries[h.id]?.length ?? 0;
     Alert.alert(
       'Eliminar del historial',
       `Se va a borrar el recorrido de ${h.trailName}, las ${h.points} lecturas que guardó` +
-        `${(counts[h.id] ?? 0) > 0 ? ` y sus ${counts[h.id]} foto${counts[h.id] === 1 ? '' : 's'}` : ''}. No se puede deshacer.`,
+        `${n > 0 ? ` y sus ${n} foto${n === 1 ? '' : 's'}` : ''}. No se puede deshacer.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -77,8 +106,7 @@ export default function Hikes() {
             await deleteHike(h.id);
             const list = await listHikes();
             setHikes(list);
-            setCounts(await countPhotos(list.map((x) => x.id)));
-            if (open === h.id) setOpen(null);
+            await loadGalleries(list);
           },
         },
       ],
@@ -145,34 +173,30 @@ export default function Hikes() {
                 ))}
               </View>
 
-              {(counts[h.id] ?? 0) > 0 && (
-                <Pressable
-                  onPress={async () => {
-                    const next = open === h.id ? null : h.id;
-                    setOpen(next);
-                    setGallery(next ? await listPhotos(h.id) : []);
-                  }}
-                  hitSlop={8}
-                >
-                  <Text style={s.photosToggle}>
-                    {open === h.id
-                      ? 'Ocultar las fotos'
-                      : `Ver ${counts[h.id]} foto${counts[h.id] === 1 ? '' : 's'}`}
-                  </Text>
-                </Pressable>
-              )}
-
-              {open === h.id && gallery.length > 0 && (
+              {(galleries[h.id]?.length ?? 0) > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.gallery}>
-                  {gallery.map((photo) => (
+                  {galleries[h.id]!.map((photo) => (
                     <Image key={photo.id} source={{ uri: photo.uri }} style={s.photo} />
                   ))}
                 </ScrollView>
               )}
 
-              <Pressable onPress={() => askToRemove(h)} hitSlop={8}>
-                <Text style={s.remove}>Eliminar del historial</Text>
-              </Pressable>
+              <View style={s.actions}>
+                {cameraAvailable() && (
+                  <Pressable
+                    onPress={() => chooseSource(h)}
+                    style={s.addPhotos}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                  >
+                    <ImagePlus color={c.primary} size={18} />
+                    <Text style={s.addPhotosText}>Agregar fotos</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => askToRemove(h)} hitSlop={8}>
+                  <Text style={s.remove}>Eliminar</Text>
+                </Pressable>
+              </View>
             </View>
           );
         })
@@ -226,8 +250,15 @@ const styles = (c: Palette) =>
     figureValue: { color: c.text, fontSize: 16, fontWeight: '700' },
     figureLabel: { color: c.mutedText, fontSize: 11.5, marginTop: 1 },
 
-    photosToggle: { color: c.primary, fontSize: 12.5, fontWeight: '700', marginTop: sp.lg },
-    gallery: { marginTop: sp.sm },
+    gallery: { marginTop: sp.lg },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: sp.lg,
+    },
+    addPhotos: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    addPhotosText: { color: c.primary, fontSize: 13.5, fontWeight: '700' },
     photo: {
       width: 132,
       height: 132,
@@ -235,7 +266,7 @@ const styles = (c: Palette) =>
       marginRight: sp.sm,
       backgroundColor: c.canvas,
     },
-    remove: { color: c.danger, fontSize: 12.5, fontWeight: '600', marginTop: sp.lg },
+    remove: { color: c.danger, fontSize: 12.5, fontWeight: '600' },
 
     empty: {
       backgroundColor: c.surface,
