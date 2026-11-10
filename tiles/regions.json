@@ -3,7 +3,7 @@
     {
       "id": "sierras-de-cordoba",
       "name": "Sierras de Córdoba",
-      "description": "Cubre los cuatro senderos precargados, desde Los Terrones por el norte hasta el Champaquí por el sur, y se extiende al este hasta la ciudad de Córdoba para poder probar la aplicación fuera del cerro.",
+      "description": "Cubre los senderos del catálogo, desde Los Terrones por el norte hasta el Champaquí por el sur, y se extiende al este hasta la ciudad de Córdoba para poder probar la aplicación fuera del cerro.",
       "bounds": {
         "west": -65.084,
         "south": -32.152,
