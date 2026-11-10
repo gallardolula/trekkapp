@@ -45,6 +45,7 @@ function Navigation() {
             somebody who cannot read the message needs to get out of it. */}
         <Stack.Screen name="verify" options={{ title: 'Confirmar el correo' }} />
         <Stack.Screen name="recover" options={{ title: 'Cambiar la contraseña' }} />
+        <Stack.Screen name="measurements" options={{ title: 'Mediciones' }} />
         <Stack.Screen name="trail/[id]" options={{ title: 'Sendero' }} />
         {/* Full screen map, with its own floating controls over it. */}
         <Stack.Screen name="hike/[id]" options={{ headerShown: false }} />
