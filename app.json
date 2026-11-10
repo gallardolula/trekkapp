@@ -38,6 +38,18 @@
           "cameraPermission": "TrekkApp usa la cámara para que puedas sacar fotos de tu recorrido. Las fotos quedan en este teléfono y no se envían a ningún lado.",
           "photosPermission": "TrekkApp no necesita acceder a tus fotos. Sólo guarda las que sacás durante un recorrido."
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1B1D20",
+          "dark": {
+            "backgroundColor": "#1B1D20"
+          }
+        }
       ]
     ],
     "scheme": "trekkapp",
