@@ -228,11 +228,6 @@ export default function Home() {
               ? 'Todavía no marcaste ningún sendero'
               : 'No hay senderos para mostrar'
           }
-          detail={
-            filter === 'ready'
-              ? 'Elegí el que vayas a caminar y dejalo listo antes de salir. Después funciona sin señal.'
-              : 'El catálogo llega al sincronizar, y también podés importar un sendero desde un archivo GPX.'
-          }
           action={{ label: 'Ver todos los senderos', onPress: () => router.navigate('/catalog') }}
         />
       ) : (

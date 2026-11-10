@@ -5,7 +5,7 @@
  *  the walk; fragments joined too eagerly produce a trail that teleports.
  *  Both look plausible in a list.
  */
-import { describe as describePath, joinByName, lengthOf, worthWalking, type OsmWay } from '../trails/osm';
+import { joinByName, lengthOf, worthWalking, type OsmWay } from '../trails/osm';
 
 let nextId = 1;
 
@@ -117,33 +117,6 @@ describe('measuring', () => {
     // Ten legs of roughly a hundred metres.
     expect(lengthOf(line)).toBeGreaterThan(900);
     expect(lengthOf(line)).toBeLessThan(1100);
-  });
-});
-
-describe('describing a path from its tags', () => {
-  const of = (tags: Record<string, string>) =>
-    describePath(joinByName([way('Sendero', START, 20, tags)])[0]!);
-
-  it('says what is underfoot when the data knows', () => {
-    expect(of({ surface: 'gravel' })).toContain('ripio');
-  });
-
-  it('passes on how demanding the terrain is', () => {
-    expect(of({ sac_scale: 'demanding_mountain_hiking' })).toContain('exigente');
-  });
-
-  it('warns when the map says the access is private', () => {
-    expect(of({ access: 'private' })).toContain('privado');
-  });
-
-  it('always says where the line came from and what that does not mean', () => {
-    // The honest part. Nobody on this project has walked these.
-    expect(of({})).toContain('OpenStreetMap');
-    expect(of({})).toContain('no verificado en el terreno');
-  });
-
-  it('invents nothing when the tags say nothing', () => {
-    expect(of({})).not.toMatch(/hermos|espectacular|imperdible/i);
   });
 });
 

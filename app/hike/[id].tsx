@@ -653,10 +653,6 @@ export default function Hike() {
 
           {detail && (
             <View style={s.detail}>
-              <Text style={s.detailText}>
-                Radio de tolerancia {TOLERANCE_RADIUS_M} m. La alerta abre tras tres lecturas
-                seguidas fuera y cierra tras tres dentro del setenta por ciento del radio.
-              </Text>
               <Text style={s.counters}>
                 Lecturas {counters.readings} · consecutivas fuera {counters.outside} · dentro{' '}
                 {counters.inside}
@@ -682,15 +678,6 @@ export default function Hike() {
                   ajustes del teléfono.
                 </Text>
               )}
-              {!cameraAvailable() && (
-                <Text style={s.detailText}>
-                  Esta compilación no incluye la cámara, así que no se pueden sacar fotos del
-                  recorrido. Todo lo demás funciona igual.
-                </Text>
-              )}
-              <Text style={s.detailText}>
-                Todo el cálculo se ejecuta en el dispositivo y sin conexión.
-              </Text>
             </View>
           )}
           </BottomSheetScrollView>

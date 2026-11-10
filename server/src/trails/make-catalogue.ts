@@ -27,7 +27,7 @@ import { computeAttributes } from '../../../src/domain/trail';
 import type { Point } from '../../../src/domain/types';
 import { uuidFromHex } from '../../../src/domain/identity';
 import { cacheDir, TerrainSampler } from '../tiles/terrain';
-import { describe as describePath, joinByName, lengthOf, worthWalking, type OsmWay } from './osm';
+import { joinByName, lengthOf, worthWalking, type OsmWay } from './osm';
 
 /**
  * Overpass servers, tried in turn and then again after a wait.
@@ -231,7 +231,9 @@ async function run(): Promise<void> {
     trails.push({
       id: identify(path.sources),
       name: path.name,
-      description: describePath(path),
+      // No prose. The trail is described by its figures and its profile,
+      // which the application draws, and not by a paragraph under them.
+      description: '',
       osm: path.sources,
       points,
     });

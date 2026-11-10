@@ -6,7 +6,7 @@
   {
    "id": "fa0d43a4-5ed4-41db-9176-e0314dd843ec",
    "name": "a Champaquí",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     97541725
    ],
@@ -3316,7 +3316,7 @@
   {
    "id": "74dc3812-d7ad-41f0-9330-3b2b73a47308",
    "name": "Sendero del Cementerio",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     428083102
    ],
@@ -5961,7 +5961,7 @@
   {
    "id": "52853551-482c-4aa2-a18a-23fe25430f06",
    "name": "Camino para sacar las Vacas hacia Ascochinga",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     521396088
    ],
@@ -7281,7 +7281,7 @@
   {
    "id": "8ed315a8-f266-4496-bc79-b56a85a2786b",
    "name": "Camino N° 6",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1190493962
    ],
@@ -8686,7 +8686,7 @@
   {
    "id": "dd4555c7-d7a2-43fa-81ce-38a3bd692a8e",
    "name": "Sendero Los Hornillos – Cerro la Ventana",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     550136166
    ],
@@ -10266,7 +10266,7 @@
   {
    "id": "f135a837-3fe3-4fbb-b745-fd46f9655b85",
    "name": "Camino A Las Antenas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     200675206
    ],
@@ -11316,7 +11316,7 @@
   {
    "id": "932ab380-620e-414e-89af-6242aa5a389d",
    "name": "Sendero Las Gemelas - Los Alazanes",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     728832489
    ],
@@ -13456,7 +13456,7 @@
   {
    "id": "b3fefec8-e762-4efa-be37-84e2a8bd3a11",
    "name": "Sendero a Dique Los Alazanes",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     46494485,
     1286721586
@@ -14317,7 +14317,7 @@
   {
    "id": "9e91a9aa-ae16-4064-ac46-4a5fbcec5c3e",
    "name": "Rally MTB Camino del Jinete 2024",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1282641669,
     1288045585
@@ -18638,7 +18638,7 @@
   {
    "id": "668c7a75-67f3-49b0-8b83-4b934f7a98ae",
    "name": "Camino a la Cascada de los Chorrillos",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     219416760
    ],
@@ -19438,7 +19438,7 @@
   {
    "id": "994a9752-0cef-43e2-bc4d-461f7fdd3464",
    "name": "Picada del talar",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739430305
    ],
@@ -20298,7 +20298,7 @@
   {
    "id": "232cd6ab-584b-4a45-8696-78824bda2005",
    "name": "Caminito a la Quebrada de Chuschica",
-   "description": "Acceso privado según el mapa. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     726025747
    ],
@@ -20713,7 +20713,7 @@
   {
    "id": "703c3960-c743-4e9b-a6e4-9ef7fc898108",
    "name": "Sendero de La Juntura",
-   "description": "Superficie de tierra. Sendero de montaña señalizado. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     664220651,
     9229090000,
@@ -22313,7 +22313,7 @@
   {
    "id": "95fbba84-fd93-4134-a02f-00a06b52d0d4",
    "name": "Trekking Cerro Uritorco",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     330811186,
     1453161094,
@@ -27015,7 +27015,7 @@
   {
    "id": "6b026fee-5e33-4a42-8840-cb261935b35d",
    "name": "Sendero Dique El Cajón-Río Seco",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     867314855
    ],
@@ -27300,7 +27300,7 @@
   {
    "id": "500336e1-a5fa-4cd2-8e37-200e9b1c6625",
    "name": "Picada del comando",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     148984613
    ],
@@ -27560,7 +27560,7 @@
   {
    "id": "727d2c79-2fc7-43d8-9574-31364e9a1cd8",
    "name": "Camino a Cerro Chato",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     521550849
    ],
@@ -28150,7 +28150,7 @@
   {
    "id": "5a1be824-e07f-42c7-b1f2-9a886a588138",
    "name": "PIcada el triángulo",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739178535
    ],
@@ -28480,7 +28480,7 @@
   {
    "id": "8e90ba12-8f77-40bb-8515-d04679e8a550",
    "name": "Sendero El Chorrito-Dique San Jerónimo",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     206704828,
     506769090
@@ -29446,7 +29446,7 @@
   {
    "id": "c9c96d70-6364-4dc5-98fa-e1248a060694",
    "name": "Puesto Gonzales - Puesto Dominguez",
-   "description": "Superficie de ripio. Sendero de montaña, por tramos expuesto. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     428630112
    ],
@@ -30061,7 +30061,7 @@
   {
    "id": "b9e3e700-2f15-40ff-9f45-03a93e71f094",
    "name": "XCO",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     740844283,
     1393043809,
@@ -32454,7 +32454,7 @@
   {
    "id": "ab1a8e1b-f3be-49fd-9497-68c1d3b3295b",
    "name": "Sendero Los Altos-Mina de Cobre",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     867314848
    ],
@@ -32829,7 +32829,7 @@
   {
    "id": "5aa5c49b-3e58-4d2d-a5fb-6f171bb0cd07",
    "name": "Sendero paralelo a las vías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     849620748
    ],
@@ -33199,7 +33199,7 @@
   {
    "id": "9393e8e1-6d13-47bc-8fb5-26895eda8ef1",
    "name": "Picada la estanzuela",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739942950
    ],
@@ -34049,7 +34049,7 @@
   {
    "id": "c45ae1d0-7bec-452c-b39b-ec04ccc7678c",
    "name": "Sendero Agua de los Palos - Las Gemelas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     720132714
    ],
@@ -35139,7 +35139,7 @@
   {
    "id": "5681c696-6058-4a57-89ba-b3d541a9e4e8",
    "name": "Héctor Gonzales - Camino del Cementerio",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     457053671
    ],
@@ -36044,7 +36044,7 @@
   {
    "id": "be33645a-f93d-4741-9e3c-eecf8b272f57",
    "name": "Sendero a Cascada Los Hornillos",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     708681338
    ],
@@ -36974,7 +36974,7 @@
   {
    "id": "f9be9d26-fac6-47bb-971b-bea36c08627f",
    "name": "Caminio a la cascada",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     220295678
    ],
@@ -37134,7 +37134,7 @@
   {
    "id": "eedb11ce-74bd-445b-8377-d6b36dc481b1",
    "name": "Camino a Cascada Los Chorrillos",
-   "description": "Superficie de tierra. Acceso privado según el mapa. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     315016824
    ],
@@ -37969,7 +37969,7 @@
   {
    "id": "3ee2dca1-48da-4583-b22a-9de230302739",
    "name": "Picada 20 de junio",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739178552
    ],
@@ -38199,7 +38199,7 @@
   {
    "id": "e9d0392e-259a-47c3-8364-8b253ca4bf2a",
    "name": "Camino a Los Cultivos",
-   "description": "Acceso privado según el mapa. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     726025697
    ],
@@ -38444,7 +38444,7 @@
   {
    "id": "ec7e051b-a387-4c48-a39b-ea83d8a4fafc",
    "name": "Sendero de las Acequias",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1093407025,
     1156484258,
@@ -38914,7 +38914,7 @@
   {
    "id": "4ac85bd3-2c91-459d-bbf0-aca5a37c9e39",
    "name": "Sendero paralelo a las vías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1124276665
    ],
@@ -39239,7 +39239,7 @@
   {
    "id": "d690496d-99a1-4e35-a17f-aec000b6bbb4",
    "name": "Sendero paralelo a las vías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     852198532
    ],
@@ -39504,7 +39504,7 @@
   {
    "id": "c8c77fb6-782c-4306-8017-7372bc438471",
    "name": "Sendero Casa del Gaucho",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     734298475
    ],
@@ -39824,7 +39824,7 @@
   {
    "id": "e337cd3c-7136-41dc-9a8f-a68d923e230e",
    "name": "Picada los blancos",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739439677,
     1393043812
@@ -40245,7 +40245,7 @@
   {
    "id": "081e6fb1-a4ec-4c9f-ba3e-be725aee3732",
    "name": "XCO",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1087091668,
     1225635759
@@ -41411,7 +41411,7 @@
   {
    "id": "086ed9bd-7a85-41ec-a56a-e2a81b272030",
    "name": "Picada de la nueva rotonda",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739221917,
     741025486
@@ -41727,7 +41727,7 @@
   {
    "id": "21860527-e4a1-44e0-ad34-1d1446469978",
    "name": "Sendero Norte",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     914567535
    ],
@@ -42862,7 +42862,7 @@
   {
    "id": "71212bb1-5ed1-490d-a7e6-131ec8599e85",
    "name": "Sendero Cabeza del Soldado-Las Pampillas (Cerrado hasta diciembre 2024)",
-   "description": "Sendero de montaña, por tramos expuesto. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     860437313
    ],
@@ -43377,7 +43377,7 @@
   {
    "id": "612d59bf-7aaa-44f9-b632-fcf14d417701",
    "name": "Sendero Las Ochoas",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1124400551
    ],
@@ -44172,7 +44172,7 @@
   {
    "id": "87231c6b-6d94-4b94-a86f-760459b704dc",
    "name": "Sendero Cerro de la Cruz",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1237652470
    ],
@@ -44502,7 +44502,7 @@
   {
    "id": "65ee7964-a7c5-4671-8bd6-ec8819094bd8",
    "name": "Sendero Torres Alta Tension",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     180759579
    ],
@@ -44957,7 +44957,7 @@
   {
    "id": "ab42e2b6-66eb-4f50-89b8-5a602815d7ae",
    "name": "Picada de la ochoa",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1124400559
    ],
@@ -45217,7 +45217,7 @@
   {
    "id": "d8718e42-b42a-4817-9b19-87891c878d8c",
    "name": "Camino A Las Antenas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     179891825
    ],
@@ -45447,7 +45447,7 @@
   {
    "id": "0441ba13-d198-4ba3-892b-6478b8e6a132",
    "name": "trekking Huertas Malas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     46494817
    ],
@@ -46132,7 +46132,7 @@
   {
    "id": "28e89c0b-fd4f-447a-809b-2a298ae658e9",
    "name": "Héctor Gonzales - Dominguez por Domos",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     457051925
    ],
@@ -46987,7 +46987,7 @@
   {
    "id": "a789fe3c-9bce-4f11-9817-d0226ac53ecc",
    "name": "Cuesta del Perro",
-   "description": "Superficie de suelo natural. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     914567538
    ],
@@ -48897,7 +48897,7 @@
   {
    "id": "2a4fd0d0-d40f-48a7-9d5b-e66d0c2fcf56",
    "name": "Sendero a Pozo del Indio",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     925017010
    ],
@@ -49372,7 +49372,7 @@
   {
    "id": "b98a29e4-7d8e-4e35-b155-8f70d9c78117",
    "name": "Sendero al Cementerio",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     457049590,
     457049591
@@ -49613,7 +49613,7 @@
   {
    "id": "f6f5521a-0714-48bc-8cb0-b5e6bf6931a8",
    "name": "Intendente Ramón Bautista Mestre (N)",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     308427604
    ],
@@ -49943,7 +49943,7 @@
   {
    "id": "aaf9945a-cb10-4abc-aa18-838576ccd5fa",
    "name": "camino vecinal",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1276051567
    ],
@@ -49998,7 +49998,7 @@
   {
    "id": "6b76174d-4833-49e2-ad66-5fc853120a52",
    "name": "Sendero de la Cruz",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     150237264
    ],
@@ -50748,7 +50748,7 @@
   {
    "id": "0a14b54b-ceca-4234-b97f-b96eb77f3348",
    "name": "Sendero paralelo a las vías. Ingreso alternativo a Casa Bamba",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     849620742
    ],
@@ -51003,7 +51003,7 @@
   {
    "id": "fa2910d8-9642-44a2-88b6-c6ebcae699cd",
    "name": "Camino al San Jorge",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     553078690
    ],
@@ -51523,7 +51523,7 @@
   {
    "id": "0820258f-a3ec-4176-af05-d55b33387d84",
    "name": "Ingreso Alternativo a San Fernando",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1150988466
    ],
@@ -51723,7 +51723,7 @@
   {
    "id": "f9ada474-c866-491b-a29e-2f0bf428fee6",
    "name": "Sendero paralelo a las vías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     849780856
    ],
@@ -51888,7 +51888,7 @@
   {
    "id": "a2d6874e-f781-41a6-81c6-9e0f782a42f3",
    "name": "Sendero paralelo a las vías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     849620743,
     1000858029
@@ -52089,7 +52089,7 @@
   {
    "id": "de492e15-fd19-4ef1-93e0-2466956c60ce",
    "name": "Colectora",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     726977635,
     1011516457
@@ -52205,7 +52205,7 @@
   {
    "id": "7ef2170b-5f4a-4c24-b6aa-aeab601adff6",
    "name": "Picada del Arroyo Seco",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1472535818
    ],
@@ -52280,7 +52280,7 @@
   {
    "id": "dcead325-cb87-47ee-9f98-34a87189a55e",
    "name": "Sendero Cascada de los Curas-Cruz Chica",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     700882672
    ],
@@ -52640,7 +52640,7 @@
   {
    "id": "b3f8a9eb-541f-45cd-abea-f19ad59c5fa1",
    "name": "Los Primeros Pobladores",
-   "description": "Superficie de arena. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     895313897,
     895313899
@@ -53026,7 +53026,7 @@
   {
    "id": "8675da63-e0b2-424d-808a-4061a2b05fdb",
    "name": "Picada de Las Perdices",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1472535817
    ],
@@ -53066,7 +53066,7 @@
   {
    "id": "3c45c7b7-d2e4-4e1d-a879-88788841f96b",
    "name": "Sendero de interpretación ambiental",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     266189339
    ],
@@ -53591,7 +53591,7 @@
   {
    "id": "66d498b4-2907-4365-aa3b-6bcfefb76f61",
    "name": "Sendero El Cristo-Dique San Jerónimo",
-   "description": "Sendero de montaña, por tramos expuesto. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     206704527,
     1002451910
@@ -54412,7 +54412,7 @@
   {
    "id": "5787df67-b3e0-4c74-9cfa-e20f69789add",
    "name": "Canteras Quinteros",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     726524437
    ],
@@ -54477,7 +54477,7 @@
   {
    "id": "b5663f31-9cbc-44db-b324-e8d6d3aa4907",
    "name": "Sendero Cerro La Cruz",
-   "description": "Superficie de suelo natural. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     895313898,
     1230459580,
@@ -54785,7 +54785,7 @@
   {
    "id": "5e41a4d9-6593-458c-8ba4-37eb94abc899",
    "name": "Sendero El Pungo",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     682340112
    ],
@@ -54900,7 +54900,7 @@
   {
    "id": "95349876-1567-4cb1-91dd-53253d1d2a10",
    "name": "Sendero Cerro de la Virgen",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     568749556
    ],
@@ -55295,7 +55295,7 @@
   {
    "id": "85614ae9-43b4-404a-9dfb-9345d4911656",
    "name": "Sendero Costa Azul - Parque del Rally",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1173144250
    ],
@@ -55485,7 +55485,7 @@
   {
    "id": "0bc6cb6a-2fd5-46d9-be5c-cdd366f03487",
    "name": "Ingreso a la Reserva por cauce del Arroyo",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1087093788
    ],
@@ -55715,7 +55715,7 @@
   {
    "id": "db209256-1b3c-467d-ab03-dc4c117730b9",
    "name": "camino vecinal",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1276051566
    ],
@@ -55755,7 +55755,7 @@
   {
    "id": "670d3daa-6471-4d97-a03b-aa2a1c1629d0",
    "name": "Sendero al Puesto Héctor González",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     97543508
    ],
@@ -56125,7 +56125,7 @@
   {
    "id": "0e341a56-00b7-4c75-9319-e921936314ae",
    "name": "Sendero paralelo al Canal Maestro Sur",
-   "description": "Superficie de suelo natural. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     855199106
    ],
@@ -56265,7 +56265,7 @@
   {
    "id": "ec97e7ad-c336-4c9b-b87c-9f11b8ef9ebb",
    "name": "Camino de Vargas",
-   "description": "Acceso privado según el mapa. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1171863031
    ],
@@ -56610,7 +56610,7 @@
   {
    "id": "94ddc1f8-4798-456f-b793-792e97b3d255",
    "name": "Sendero al cerro Wank",
-   "description": "Superficie de roca. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     696170218
    ],
@@ -57235,7 +57235,7 @@
   {
    "id": "9812c2cb-a1e6-44d9-8a4c-a4223a0bbc11",
    "name": "Las Tres Marías",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     521382955
    ],
@@ -57330,7 +57330,7 @@
   {
    "id": "d738fd1c-da8a-4952-9434-466436a91856",
    "name": "Sendero Principal",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1027566620
    ],
@@ -57680,7 +57680,7 @@
   {
    "id": "b22d1212-f623-48c8-8f10-60584541cb69",
    "name": "Sendero Cristo Pastor",
-   "description": "Superficie de tierra. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1305147028
    ],
@@ -57845,7 +57845,7 @@
   {
    "id": "43e95853-7639-494c-8854-f80933eea85a",
    "name": "Nuestro Rincón Nativo",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1123521131
    ],
@@ -57980,7 +57980,7 @@
   {
    "id": "726216c9-a116-4fc0-80b8-2f4bc4a5ad4e",
    "name": "A Héctor González",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     457050779
    ],
@@ -58255,7 +58255,7 @@
   {
    "id": "6d738e09-4c60-458a-a21d-591b40d4b62a",
    "name": "La Pampilla",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     655132621
    ],
@@ -58375,7 +58375,7 @@
   {
    "id": "91f2a7a2-ab74-4e40-b476-7e930c5eec8d",
    "name": "Camino A Canteras Centenário",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     200179476,
     679573966
@@ -58451,7 +58451,7 @@
   {
    "id": "35900529-aa69-4e6f-b8e5-df57f0db1f6f",
    "name": "Sendero Geológico",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     154252509
    ],
@@ -58616,7 +58616,7 @@
   {
    "id": "6f553b53-077f-4f84-bb01-589c042e26cb",
    "name": "Sendero de animales (muy espionso)",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     739439689
    ],
@@ -58816,7 +58816,7 @@
   {
    "id": "48b186be-ce99-49cc-a2ec-aa1975bd37b0",
    "name": "Sendero El Origen 3 Cascadas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1364842617
    ],
@@ -59581,7 +59581,7 @@
   {
    "id": "aa528b67-2f28-44cc-b1a8-6741dbaed4ce",
    "name": "senderos",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     840666539
    ],
@@ -59671,7 +59671,7 @@
   {
    "id": "8f505704-a8ec-4226-a6f7-52b0205d6842",
    "name": "Campo IPEA 343",
-   "description": "Acceso privado según el mapa. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1186239286
    ],
@@ -59711,7 +59711,7 @@
   {
    "id": "447a8a10-5988-4088-a412-341ba1f7d14f",
    "name": "Mirador Los Aromos",
-   "description": "Superficie de suelo natural. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1122209861
    ],
@@ -60291,7 +60291,7 @@
   {
    "id": "af82c51f-6c4b-4228-a248-b351e0a50fb0",
    "name": "sendero",
-   "description": "Superficie de ripio. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     457053670
    ],
@@ -60676,7 +60676,7 @@
   {
    "id": "6d3ae670-dabf-44f3-8d35-ca555dddb5eb",
    "name": "Sendero El Cristo-Dique San Jerónimo",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     206703833,
     1000324714,
@@ -60973,7 +60973,7 @@
   {
    "id": "08d1259e-1e44-407d-a55f-afdddd135ced",
    "name": "Sin Salida",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1393043813
    ],
@@ -61078,7 +61078,7 @@
   {
    "id": "d33e8844-bde9-4257-8532-a576384cbd01",
    "name": "Tucumán",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1228280367,
     1445651562
@@ -61114,7 +61114,7 @@
   {
    "id": "bd8385b4-3e2f-4928-a84f-8ce30833c770",
    "name": "trekking Huertas Malas",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     46494816
    ],
@@ -61324,7 +61324,7 @@
   {
    "id": "096ea6cd-45f4-419f-b841-c58cea16ff59",
    "name": "Tucumán",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1133254616
    ],
@@ -61419,7 +61419,7 @@
   {
    "id": "d2b81bd2-041d-4b0b-827b-795a27f1e16b",
    "name": "Sendero La Calandria",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1364857300
    ],
@@ -62034,7 +62034,7 @@
   {
    "id": "4d8fc1fb-c3dd-4ce1-b726-77479969b33a",
    "name": "Picada de Paul",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1170431361
    ],
@@ -62104,7 +62104,7 @@
   {
    "id": "b2fcd0b1-a3d4-4668-9c89-a7b40da97b25",
    "name": "Camino al Colectivo Abandonado",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     722097997
    ],
@@ -62304,7 +62304,7 @@
   {
    "id": "57a17f7a-d2ee-4ead-bb0d-a4e45d735645",
    "name": "Los Álamos (sin materializar)",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     402053489
    ],
@@ -62379,7 +62379,7 @@
   {
    "id": "21695de2-f2ec-46cc-a5af-80a413905827",
    "name": "Sendero Los Zorzales",
-   "description": "Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1283306288
    ],
@@ -62624,7 +62624,7 @@
   {
    "id": "5e2af195-f349-41d3-92b9-fc5dd61dd6c5",
    "name": "Circuito El Espinal",
-   "description": "Superficie de sin pavimentar. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     1291559398
    ],
@@ -62914,7 +62914,7 @@
   {
    "id": "b7c1a28b-63db-4224-afdd-6615ccb0241a",
    "name": "Camino a la Cabeza Del Soldado",
-   "description": "Sendero exigente, con pasos expuestos. Trazado tomado de OpenStreetMap y no verificado en el terreno.",
+   "description": "",
    "osm": [
     180732118
    ],
