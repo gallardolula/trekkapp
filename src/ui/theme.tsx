@@ -132,6 +132,30 @@ export function difficultyColour(c: Palette) {
   return { beginner: c.success, intermediate: c.warning, advanced: c.danger } as const;
 }
 
+/**
+ * How each report severity is drawn, wherever a report is shown.
+ *
+ * An ink for the glyph and the text, and a tint for whatever sits behind
+ * it. Two of the three are browns and sit close together, so hue alone
+ * would not separate them outdoors; the weight does the rest. Anything
+ * blocking is drawn filled, a hazard tinted and a notice plain, which
+ * survives both palettes and a screen read in the sun.
+ */
+export function severityColour(c: Palette) {
+  return {
+    blocking: { ink: c.danger, tint: c.dangerSoft },
+    hazard: { ink: c.warning, tint: c.warningSoft },
+    notice: { ink: c.primary, tint: c.primarySoft },
+  } as const;
+}
+
+/** What each severity means for somebody about to walk the path. */
+export const SEVERITY_LABEL = {
+  blocking: 'No se puede pasar',
+  hazard: 'Se pasa con cuidado',
+  notice: 'Para tener en cuenta',
+} as const;
+
 /** Spanish labels for the values the user sees. */
 export const LEVEL_LABEL = {
   beginner: 'principiante',
