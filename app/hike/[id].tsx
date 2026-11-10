@@ -59,7 +59,6 @@ import {
   Point,
 } from '../../src/domain/types';
 import { prepareStorage } from '../../src/startup/storage';
-import { cameraAvailable, capturePhoto, CameraRefused } from '../../src/data/photos';
 import { setRecording } from '../../src/sync/auto';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { ReportSheet, type ReportPlace } from '../../src/ui/ReportSheet';
@@ -126,7 +125,6 @@ export default function Hike() {
   const [place, setPlace] = useState<ReportPlace>({ kind: 'here' });
   const [pick, setPick] = useState<Point | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  const [photos, setPhotos] = useState(0);
 
   const state = useRef<DeviationState>(INITIAL_DEVIATION_STATE);
 
@@ -348,12 +346,18 @@ export default function Hike() {
   // Replaying the track with a departure induced in the middle stretch.
   useEffect(() => {
     if (!navigating || !replay || track.length === 0) return;
+    // Walked once, start to end. Starting over from the end would add the
+    // whole straight line back to the first point to the distance walked.
     let i = 0;
     const timer = setInterval(() => {
-      const base = track[i % track.length];
-      const fraction = (i % track.length) / track.length;
+      if (i >= track.length) {
+        clearInterval(timer);
+        return;
+      }
+      const base = track[i]!;
+      const fraction = i / track.length;
       const departure = fraction > 0.4 && fraction < 0.56 ? 95 : 0;
-      process(departure ? offsetPoint(base, departure) : base, i % track.length);
+      process(departure ? offsetPoint(base, departure) : base, i);
       i += 2;
     }, 700);
     return () => clearInterval(timer);
@@ -418,27 +422,6 @@ export default function Hike() {
     setPick(null);
     setPlace({ kind: 'here' });
     setSheetOpen(true);
-  }
-
-  /** A photograph of this walk, kept on the phone and nowhere else. */
-  async function takePhoto() {
-    const current = hikeId.current;
-    if (!current) return;
-    try {
-      const photo = await capturePhoto(current, position ?? here);
-      if (photo) {
-        setPhotos((n) => n + 1);
-        setSaved('Foto guardada con este recorrido. Queda en tu teléfono.');
-        setTimeout(() => setSaved(null), 4000);
-      }
-    } catch (error) {
-      Alert.alert(
-        'No pudimos usar la cámara',
-        error instanceof CameraRefused
-          ? 'Hace falta permiso de cámara. Podés activarlo desde los ajustes del teléfono.'
-          : 'Probá de nuevo en un momento.',
-      );
-    }
   }
 
   async function saveTheReport(draft: { kindId: string; comment: string }) {
@@ -526,29 +509,34 @@ export default function Hike() {
         </Pressable>
       </View>
 
-      {offTrack && !picking && (
-        <View style={[s.banner, { top: insets.top + 64 }]}>
-          <Text style={s.bannerTitle}>Te alejaste del sendero</Text>
-          <Text style={s.bannerText}>
-            {Math.round(distance ?? 0)} m de la traza. Volvé sobre tus pasos.
-          </Text>
-        </View>
-      )}
-
-      {saved && !picking && (
-        <View style={[s.toast, { top: insets.top + 64 }]}>
-          <Text style={s.toastText}>{saved}</Text>
-        </View>
-      )}
-
-      {/* Which map this is cannot be left implicit. A map drawn from the
+      {/* The notices over the map share one column, so that a second one
+          pushes the first down instead of covering it. Leaving the trail
+          goes first because it is the one that asks for something now.
+          Which map this is cannot be left implicit: a map drawn from the
           network looks exactly like one that is on the phone, and the
           difference only shows up where there is no signal to find out. */}
-      {map && !map.offline && !picking && (
-        <View style={[s.network, { top: insets.top + 56 }]}>
-          <Text style={s.networkText}>
-            Mapa en línea. Descargá la región para que siga estando sin señal.
-          </Text>
+      {!picking && (offTrack || saved || (map && !map.offline)) && (
+        <View style={[s.notices, { top: insets.top + 64 }]} pointerEvents="none">
+          {offTrack && (
+            <View style={s.banner}>
+              <Text style={s.bannerTitle}>Te alejaste del sendero</Text>
+              <Text style={s.bannerText}>
+                {Math.round(distance ?? 0)} m de la traza. Volvé sobre tus pasos.
+              </Text>
+            </View>
+          )}
+          {saved && (
+            <View style={s.toast}>
+              <Text style={s.toastText}>{saved}</Text>
+            </View>
+          )}
+          {map && !map.offline && (
+            <View style={s.network}>
+              <Text style={s.networkText}>
+                Mapa en línea. Descargá la región para que siga estando sin señal.
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -599,7 +587,7 @@ export default function Hike() {
           <View style={s.metrics}>
             {[
               [distance === null ? '—' : `${Math.round(distance)} m`, 'a la traza', offTrack],
-              [`${(walked / 1000).toFixed(2)} km`, photos > 0 ? `caminados · ${photos} 📷` : 'caminados', false],
+              [`${(walked / 1000).toFixed(2)} km`, 'caminados', false],
               [
                 `${Math.round(((progress + 1) / track.length) * 100)} %`,
                 `de ${(coveredM / 1000).toFixed(1)} km`,
@@ -635,14 +623,6 @@ export default function Hike() {
             <Pressable style={s.report} onPress={() => setSheetOpen(true)}>
               <Text style={s.reportText}>Avisar</Text>
             </Pressable>
-            {/* Only while a walk is being recorded, because a photograph
-                belongs to an outing and there is no outing yet. It stays
-                on this phone and goes nowhere. */}
-            {navigating && cameraAvailable() && (
-              <Pressable style={s.report} onPress={() => void takePhoto()}>
-                <Text style={s.reportText}>Foto</Text>
-              </Pressable>
-            )}
           </View>
 
           <Pressable onPress={() => setDetail((d) => !d)} hitSlop={8}>
@@ -735,10 +715,14 @@ const styles = (c: Palette) =>
     roundGlyph: { color: c.text, fontSize: 28, lineHeight: 30, marginTop: -4 },
     roundLabel: { color: c.text, fontSize: 19 },
 
-    banner: {
+    notices: {
       position: 'absolute',
       left: sp.lg,
       right: sp.lg,
+      gap: sp.sm,
+    },
+
+    banner: {
       backgroundColor: c.danger,
       borderRadius: 14,
       padding: sp.md,
@@ -747,9 +731,6 @@ const styles = (c: Palette) =>
     bannerText: { color: '#ffffff', fontSize: 13, marginTop: 2 },
 
     toast: {
-      position: 'absolute',
-      left: sp.lg,
-      right: sp.lg,
       backgroundColor: c.surface,
       borderRadius: 14,
       padding: sp.md,
@@ -762,9 +743,6 @@ const styles = (c: Palette) =>
     toastText: { color: c.text, fontSize: 13, lineHeight: 18 },
 
     network: {
-      position: 'absolute',
-      left: sp.lg,
-      right: sp.lg,
       backgroundColor: c.warningSoft,
       borderRadius: 12,
       paddingVertical: sp.sm,
