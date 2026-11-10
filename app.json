@@ -14,10 +14,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F3F0E6",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#1B1D20",
+        "foregroundImage": "./assets/adaptive-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -39,6 +37,18 @@
         {
           "cameraPermission": "TrekkApp usa la cámara para que puedas sacar fotos de tu recorrido. Las fotos quedan en este teléfono y no se envían a ningún lado.",
           "photosPermission": "TrekkApp no necesita acceder a tus fotos. Sólo guarda las que sacás durante un recorrido."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1B1D20",
+          "dark": {
+            "backgroundColor": "#1B1D20"
+          }
         }
       ]
     ],

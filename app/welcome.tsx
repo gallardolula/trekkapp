@@ -11,22 +11,20 @@
  */
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 
 import { Button } from '../src/ui/forms';
 import { Palette, sp, useTheme } from '../src/ui/theme';
 
-/** The mark, drawn rather than shipped as an image so it follows the theme. */
-function Logo({ colour, accent }: { colour: string; accent: string }) {
-  return (
-    <Svg width={72} height={72} viewBox="0 0 48 48">
-      <Path d="M2 40 15 14l8.5 16.5L28 22l18 18z" fill={colour} />
-      <Path d="M15 14l5 9.6-4.6 3.4-4-2.6z" fill={accent} />
-    </Svg>
-  );
-}
+/**
+ * The application icon itself, as it appears on a home screen.
+ *
+ * The same artwork the launcher shows, rendered from the same vector master
+ * as every other size, so the first screen and the icon somebody tapped to
+ * reach it are one image and not two drawings of the same idea.
+ */
+const ICON = require('../assets/icon.png');
 
 export default function Welcome() {
   const router = useRouter();
@@ -39,7 +37,7 @@ export default function Welcome() {
   return (
     <View style={[s.screen, { paddingTop: insets.top + sp.lg, paddingBottom: insets.bottom + sp.lg }]}>
       <View style={s.middle}>
-        <Logo colour={c.primary} accent={c.warning} />
+        <Image source={ICON} style={s.icon} accessibilityIgnoresInvertColors />
         <Text style={s.brand}>TrekkApp</Text>
       </View>
 
@@ -55,6 +53,9 @@ const styles = (c: Palette) =>
   StyleSheet.create({
     screen: { flex: 1, paddingHorizontal: sp.xl, justifyContent: 'space-between' },
     middle: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    // The radius a launcher gives an icon of this size, so it reads as the
+    // icon and not as a square photograph.
+    icon: { width: 104, height: 104, borderRadius: 24 },
     brand: { fontSize: 32, fontWeight: '800', color: c.text, marginTop: sp.md },
     actions: { gap: sp.sm },
   });
